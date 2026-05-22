@@ -120,15 +120,6 @@ function ModuleCard({label, accent, arch, level, error, isLowPowerMode}: ModuleC
           <Text style={styles.switchLabel}>Low Power Mode</Text>
           <Text style={styles.switchHint}>Tap to open iOS Battery Settings</Text>
         </View>
-        {/* iOS không cho app set Low Power Mode — onValueChange mở Settings
-            reactive event tự cập nhật Switch khi user quay lại app */}
-        {/* <Switch
-          value={isLowPowerMode}
-          onValueChange={() => Linking.openURL('App-Prefs:BATTERY_USAGE')}
-          trackColor={{false: '#D0D0D0', true: '#FFB300'}}
-          thumbColor="#FFFFFF"
-          ios_backgroundColor="#D0D0D0"
-        /> */}
         <View >
           <Text style={isLowPowerMode? styles.active:styles.inactive}>{isLowPowerMode?'ON': 'OFF'}</Text>
         </View>
