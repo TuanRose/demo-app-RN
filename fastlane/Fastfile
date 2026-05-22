@@ -1,0 +1,159 @@
+default_platform(:ios)
+
+# ═══════════════════════════════════════════════════
+#  iOS — TestFlight / App Store
+#  Chạy: bundle exec fastlane ios <lane>
+# ═══════════════════════════════════════════════════
+platform :ios do
+
+  desc "Sync cert + profile từ match repo (chạy 1 lần khi setup máy mới hoặc cert hết hạn)"
+  lane :sync_certs do
+    api_key = app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_KEY_CONTENT"],
+    )
+    # WHY: readonly: false để match có thể tạo cert/profile mới nếu chưa tồn tại.
+    # Sau khi setup xong, CI luôn dùng readonly: true.
+    match(
+      type:                    "appstore",
+      readonly:                false,
+      api_key:                 api_key,
+      app_identifier:          ENV["APP_IDENTIFIER"],
+      git_url:                 ENV["MATCH_GIT_URL"],
+      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
+    )
+  end
+
+  desc "Build và upload lên TestFlight"
+  lane :beta do
+    # WHY: setup_ci tạo temporary keychain trên CI runner và giữ nó unlocked suốt build.
+    # Không có step này, codesign trong [CP] Embed Pods Frameworks sẽ hang vô thời hạn
+    # chờ password prompt — trên CI không có ai nhập → build treo 40+ phút.
+    setup_ci
+
+    # WHY: API Key thay App-Specific Password — không bị block bởi 2FA, dùng được trên CI
+    api_key = app_store_connect_api_key(
+      key_id:      ENV["ASC_KEY_ID"],
+      issuer_id:   ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_KEY_CONTENT"],
+    )
+
+    # WHY: CI runner là ephemeral — xcodeproj trong repo luôn giữ build number cũ.
+    # Phải query ASC để lấy build number thực tế đang cao nhất, rồi +1.
+    latest_build = latest_testflight_build_number(
+      api_key:        api_key,
+      app_identifier: ENV["APP_IDENTIFIER"],
+    )
+    increment_build_number(
+      build_number: latest_build + 1,
+      xcodeproj:    "ios/demo_app.xcodeproj"
+    )
+
+    # WHY: match fetch cert + profile từ git repo (encrypted), install vào keychain/system.
+    # readonly: true — CI không được phép tạo cert mới, chỉ dùng cert đã có trong repo.
+    match(
+      type:                    "appstore",
+      readonly:                true,
+      api_key:                 api_key,
+      app_identifier:          ENV["APP_IDENTIFIER"],
+      git_url:                 ENV["MATCH_GIT_URL"],
+      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
+    )
+
+    # WHY: PROVISIONING_PROFILE_SPECIFIER phải khớp với tên profile match tạo ra.
+    # Match naming convention: "match AppStore <bundle_id>" — pass qua xcargs để override Xcode project setting.
+    gym(
+      scheme:           "demo_app",
+      workspace:        "ios/demo_app.xcworkspace",
+      configuration:    "Release",
+      export_method:    "app-store",
+      output_directory: "./build",
+      output_name:      "demo_app.ipa",
+      include_bitcode:  false,
+      xcargs:           "CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER='match AppStore #{ENV["APP_IDENTIFIER"]}' CODE_SIGN_IDENTITY='iPhone Distribution'",
+    )
+
+    pilot(
+      api_key:                           api_key,
+      ipa:                               "./build/demo_app.ipa",
+      skip_waiting_for_build_processing: true,
+      distribute_external:               false,
+    )
+
+    UI.success "✅ iOS: Upload thành công! Vào App Store Connect > TestFlight để xem."
+  end
+
+  desc "Chỉ build .ipa, không upload"
+  lane :build_only do
+    gym(
+      scheme:           "demo_app",
+      workspace:        "ios/demo_app.xcworkspace",
+      configuration:    "Release",
+      export_method:    "app-store",
+      output_directory: "./build",
+      output_name:      "demo_app.ipa",
+      include_bitcode:  false,
+      xcargs:           "-allowProvisioningUpdates",
+    )
+    UI.success "✅ iOS: Build xong: ./build/demo_app.ipa"
+  end
+
+end
+
+# ═══════════════════════════════════════════════════
+#  Android — Google Play Internal Testing / Production
+#  Chạy: bundle exec fastlane android <lane>
+#
+#  Prerequisites:
+#    1. Tạo Release Keystore (xem .env.example)
+#    2. Tạo Google Play service account JSON key
+#    3. Upload thủ công lần đầu qua Google Play Console
+#       (supply chỉ hoạt động từ lần 2 trở đi)
+# ═══════════════════════════════════════════════════
+platform :android do
+
+  desc "Build AAB và upload lên Google Play Internal Testing"
+  lane :beta do
+    gradle(
+      task:        "bundle",
+      build_type:  "Release",
+      project_dir: "android/",
+      # WHY: pass signing qua đây thay vì hardcode trong build.gradle
+      properties: {
+        "android.injected.signing.store.file"     => ENV["ANDROID_KEYSTORE_PATH"],
+        "android.injected.signing.store.password" => ENV["ANDROID_KEYSTORE_PASSWORD"],
+        "android.injected.signing.key.alias"      => ENV["ANDROID_KEYSTORE_ALIAS"],
+        "android.injected.signing.key.password"   => ENV["ANDROID_KEY_PASSWORD"],
+      },
+    )
+
+    supply(
+      track:                   "internal",
+      aab:                     lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
+      json_key:                ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
+      skip_upload_apk:         true,
+      skip_upload_images:      true,
+      skip_upload_screenshots: true,
+    )
+
+    UI.success "✅ Android: Upload thành công! Vào Google Play Console > Internal Testing."
+  end
+
+  desc "Chỉ build AAB, không upload"
+  lane :build_only do
+    gradle(
+      task:        "bundle",
+      build_type:  "Release",
+      project_dir: "android/",
+      properties: {
+        "android.injected.signing.store.file"     => ENV["ANDROID_KEYSTORE_PATH"],
+        "android.injected.signing.store.password" => ENV["ANDROID_KEYSTORE_PASSWORD"],
+        "android.injected.signing.key.alias"      => ENV["ANDROID_KEYSTORE_ALIAS"],
+        "android.injected.signing.key.password"   => ENV["ANDROID_KEY_PASSWORD"],
+      },
+    )
+    UI.success "✅ Android: Build xong: #{lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]}"
+  end
+
+end

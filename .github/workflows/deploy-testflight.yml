@@ -1,0 +1,52 @@
+name: Deploy to TestFlight
+
+on:
+  push:
+    branches: [CICD-Fastlane-match]
+
+jobs:
+  deploy:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 'latest-stable'
+
+      - name: Install Pods
+        run: bundle exec pod install --project-directory=ios
+
+      - name: Deploy to TestFlight
+        env:
+          ASC_KEY_ID:       ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID:    ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT:  ${{ secrets.ASC_KEY_CONTENT }}
+          APP_IDENTIFIER:   ${{ secrets.APP_IDENTIFIER }}
+          TEAM_ID:          ${{ secrets.TEAM_ID }}
+          MATCH_GIT_URL:    ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD:   ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_TOKEN:  ${{ secrets.MATCH_GIT_TOKEN }}
+        run: bundle exec fastlane ios beta

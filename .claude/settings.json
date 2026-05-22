@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(npm ci)",
+      "Bash(npx jest *)",
+      "Bash(npx react-native *)",
+      "Bash(npx expo *)",
+      "Bash(cd android && ./gradlew *)",
+      "Bash(bundle exec pod install)",
+      "Bash(bundle install)",
+      "Bash(mkdir -p src/*)",
+      "Bash(find src -type f)",
+      "Bash(find src -type d)",
+      "Bash(ls src*)",
+      "Bash(ls .claude/skills*)",
+      "Bash(find .claude -type f)",
+      "Bash(find .claude/skills -type f)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git status*)"
+    ],
+    "deny": [
+      "Bash(cat .env*)",
+      "Bash(cat *.env)",
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '\\n─────────────────────────────────────────────────────────\\n💡 Hoàn thành mục tiêu? Chạy /project:tick-lesson <folder> để cập nhật tiến độ.\\n─────────────────────────────────────────────────────────'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/antonio/Documents/workspace/React-Native/Projects/demo_app && file=\"$CLAUDE_TOOL_INPUT_FILE_PATH\"; if [[ \"$file\" == src/*.tsx || \"$file\" == src/*.ts ]]; then npm run lint -- --quiet \"$file\" 2>&1 | head -10; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

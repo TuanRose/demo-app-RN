@@ -1,0 +1,10 @@
+# All values loaded from fastlane/.env (gitignored)
+# See fastlane/.env.example for the full list of required variables
+
+# iOS
+app_identifier ENV["APP_IDENTIFIER"]
+apple_id       ENV["APPLE_ID"]
+team_id        ENV["TEAM_ID"]
+
+# Android — reuse APP_IDENTIFIER, bundle ID is the same for both platforms
+package_name   ENV["APP_IDENTIFIER"]
