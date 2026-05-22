@@ -9,29 +9,43 @@
 
 @implementation RCTNativeDeviceBattery {
   DeviceBatteryImpl *_impl;
+  BOOL _isInstalled;
 }
 
 - (instancetype)init {
   if (self = [super init]) {
     _impl = [DeviceBatteryImpl new];
+    _isInstalled = NO;
 
-    // Bơm event từ Swift lên JS — weakSelf tránh retain cycle
     __weak __typeof(self) weakSelf = self;
     _impl.onBatteryChange = ^(NSDictionary *body) {
-      [weakSelf emitOnBatteryChange:body];
+      __strong __typeof(weakSelf) strongSelf = weakSelf;
+      // WHY: guard _isInstalled — EventEmitter_ (std::function) chỉ được set sau khi
+      // getTurboModule chạy. Gọi emitOn* trước đó → std::__throw_bad_function_call crash.
+      if (!strongSelf || !strongSelf->_isInstalled) return;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        __strong __typeof(weakSelf) s = weakSelf;
+        if (s && s->_isInstalled) [s emitOnBatteryChange:body];
+      });
     };
     _impl.onLowPowerModeChange = ^(NSDictionary *body) {
-      // emitOnLowPowerModeChange sinh bởi CodeGen từ "onLowPowerModeChange" trong TS spec
-      [weakSelf emitOnLowPowerModeChange:body];
+      __strong __typeof(weakSelf) strongSelf = weakSelf;
+      if (!strongSelf || !strongSelf->_isInstalled) return;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        __strong __typeof(weakSelf) s = weakSelf;
+        if (s && s->_isInstalled) [s emitOnLowPowerModeChange:body];
+      });
     };
   }
   return self;
 }
 
 // BẮT BUỘC — nối module vào TurboModule runtime qua JSI
-// Boilerplate này giống nhau ở mọi Turbo Module, chỉ đổi tên SpecJSI
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
     (const facebook::react::ObjCTurboModule::InitParams &)params {
+  // WHY: set _isInstalled ở đây vì đây là thời điểm runtime set EventEmitter_ vào spec.
+  // Emit trước bước này → EventEmitter_ rỗng → crash.
+  _isInstalled = YES;
   return std::make_shared<facebook::react::NativeDeviceBatterySpecJSI>(params);
 }
 
