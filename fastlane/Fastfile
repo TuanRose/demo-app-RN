@@ -79,7 +79,6 @@ platform :ios do
       ipa:                               "./build/demo_app.ipa",
       skip_waiting_for_build_processing: true,
       distribute_external:               false,
-      raise_if_error_on_altool_upload:   false,  # bỏ qua lỗi metrics của Apple
     )
 
     UI.success "✅ iOS: Upload thành công! Vào App Store Connect > TestFlight để xem."
