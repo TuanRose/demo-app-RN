@@ -22,10 +22,9 @@ class DeviceBattery: RCTEventEmitter {
     UIDevice.current.isBatteryMonitoringEnabled = true
   }
 
-  // requiresMainQueueSetup: trả false nếu module không đụng UIKit lúc khởi tạo.
-  // Bắt buộc override — nếu không, RN log warning và mặc định chạy main thread (chậm hơn).
+  // WHY: phải true vì init() gọi UIDevice.current (UIKit) — UIKit chỉ được access trên main thread.
   override static func requiresMainQueueSetup() -> Bool {
-    return false
+    return true
   }
 
   override func supportedEvents() -> [String]! {
@@ -70,13 +69,20 @@ class DeviceBattery: RCTEventEmitter {
 
   @objc private func batteryLevelDidChange() {
     guard hasListeners else { return }
-    sendEvent(withName: "batteryLevelChanged",
-              body: ["level": Int(UIDevice.current.batteryLevel * 100)])
+    // WHY: UIDevice.current.batteryLevel phải đọc trên main thread
+    DispatchQueue.main.async {
+      self.sendEvent(withName: "batteryLevelChanged",
+                body: ["level": Int(UIDevice.current.batteryLevel * 100)])
+    }
   }
 
   @objc private func lowPowerModeDidChange() {
     guard hasListeners else { return }
-    sendEvent(withName: "lowPowerModeChanged",
-              body: ["isLowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled])
+    // WHY: NSProcessInfoPowerStateDidChange có thể fire trên background thread khi toggle từ Control Center
+    // sendEvent không thread-safe → phải dispatch về main
+    DispatchQueue.main.async {
+      self.sendEvent(withName: "lowPowerModeChanged",
+                body: ["isLowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled])
+    }
   }
 }

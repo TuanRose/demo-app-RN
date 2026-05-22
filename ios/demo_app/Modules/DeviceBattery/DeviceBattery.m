@@ -15,7 +15,6 @@
 RCT_EXTERN_METHOD(getBatteryLevel:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-// requiresMainQueueSetup khai báo ở đây để RN không cảnh báo
-+ (BOOL)requiresMainQueueSetup { return NO; }
++ (BOOL)requiresMainQueueSetup { return YES; }
 
 @end

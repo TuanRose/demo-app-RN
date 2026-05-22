@@ -35,12 +35,19 @@ public class DeviceBatteryImpl: NSObject {
   }
 
   @objc private func batteryChanged() {
-    let level = UIDevice.current.batteryLevel
-    onBatteryChange?(["level": level < 0 ? -1 : Int(level * 100)])
+    // WHY: UIDevice.current.batteryLevel phải đọc trên main thread
+    DispatchQueue.main.async { [weak self] in
+      let level = UIDevice.current.batteryLevel
+      self?.onBatteryChange?(["level": level < 0 ? -1 : Int(level * 100)])
+    }
   }
 
   @objc private func powerModeChanged() {
-    onLowPowerModeChange?(["isLowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled])
+    // WHY: NSProcessInfoPowerStateDidChange có thể fire trên background thread khi toggle từ Control Center
+    // emitOnLowPowerModeChange (CodeGen TurboModule) không thread-safe → phải dispatch về main
+    DispatchQueue.main.async { [weak self] in
+      self?.onLowPowerModeChange?(["isLowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled])
+    }
   }
 
   deinit {
