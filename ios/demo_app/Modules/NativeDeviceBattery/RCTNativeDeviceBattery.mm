@@ -19,18 +19,14 @@
 
     __weak __typeof(self) weakSelf = self;
     _impl.onBatteryChange = ^(NSDictionary *body) {
-      __strong __typeof(weakSelf) strongSelf = weakSelf;
       // WHY: guard _isInstalled — EventEmitter_ (std::function) chỉ được set sau khi
       // getTurboModule chạy. Gọi emitOn* trước đó → std::__throw_bad_function_call crash.
-      if (!strongSelf || !strongSelf->_isInstalled) return;
       dispatch_async(dispatch_get_main_queue(), ^{
         __strong __typeof(weakSelf) s = weakSelf;
         if (s && s->_isInstalled) [s emitOnBatteryChange:body];
       });
     };
     _impl.onLowPowerModeChange = ^(NSDictionary *body) {
-      __strong __typeof(weakSelf) strongSelf = weakSelf;
-      if (!strongSelf || !strongSelf->_isInstalled) return;
       dispatch_async(dispatch_get_main_queue(), ^{
         __strong __typeof(weakSelf) s = weakSelf;
         if (s && s->_isInstalled) [s emitOnLowPowerModeChange:body];

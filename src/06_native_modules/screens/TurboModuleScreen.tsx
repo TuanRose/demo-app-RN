@@ -10,12 +10,12 @@ import {
   View,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-// import {useBatteryLevel} from '../hooks/useBatteryLevel';
+import {useBatteryLevel} from '../hooks/useBatteryLevel';
 import {useBatteryLevelTurbo} from '../hooks/useBatteryLevelTurbo';
 
 export default function TurboModuleScreen() {
   const {top, bottom} = useSafeAreaInsets();
-  // const legacy = useBatteryLevel();
+  const legacy = useBatteryLevel();
   const turbo = useBatteryLevelTurbo();
 
   return (
@@ -28,14 +28,14 @@ export default function TurboModuleScreen() {
       <Text style={styles.title}>Legacy vs Turbo</Text>
       <Text style={styles.subtitle}>NativeDeviceBattery · Swift · iOS</Text>
 
-      {/* <ModuleCard
+      <ModuleCard
         label="LEGACY"
         accent="#C84B11"
         arch="Bridge  ·  JSON serialize  ·  Eager load"
         level={legacy.level}
         error={legacy.error}
         isLowPowerMode={legacy.isLowPowerMode}
-      /> */}
+      />
 
       <ModuleCard
         label="TURBO"

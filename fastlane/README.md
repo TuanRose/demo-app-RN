@@ -31,6 +31,22 @@ Sync cert + profile từ match repo (chạy 1 lần khi setup máy mới hoặc 
 
 Build và upload lên TestFlight
 
+### ios refresh_profile
+
+```sh
+[bundle exec] fastlane ios refresh_profile
+```
+
+Refresh provisioning profile khi có device mới được add vào Apple Portal
+
+### ios register_new_device
+
+```sh
+[bundle exec] fastlane ios register_new_device
+```
+
+Đăng ký device mới lên Apple Portal rồi refresh development profile
+
 ### ios build_only
 
 ```sh
@@ -38,6 +54,14 @@ Build và upload lên TestFlight
 ```
 
 Chỉ build .ipa, không upload
+
+### ios build_adhoc
+
+```sh
+[bundle exec] fastlane ios build_adhoc
+```
+
+Build .ipa adhoc để distribute qua Diawi/link trực tiếp
 
 ----
 

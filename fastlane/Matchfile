@@ -1,5 +1,7 @@
-git_url        ENV["MATCH_GIT_URL"]
-storage_mode   "git"
-type           "appstore"
-app_identifier ENV["APP_IDENTIFIER"]
-# username không cần khi dùng App Store Connect API key
+git_url               ENV["MATCH_GIT_URL"]
+storage_mode          "git"
+type                  "appstore"
+app_identifier        ENV["APP_IDENTIFIER"]
+# WHY: git_basic_authorization thay username/password — GitHub PAT format: "x-access-token:<token>"
+# Base64 encode ở đây để Matchfile và các lane gọi trực tiếp đều dùng chung cùng auth
+git_basic_authorization Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}")

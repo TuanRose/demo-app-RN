@@ -69,8 +69,9 @@ class DeviceBattery: RCTEventEmitter {
 
   @objc private func batteryLevelDidChange() {
     guard hasListeners else { return }
-    // WHY: UIDevice.current.batteryLevel phải đọc trên main thread
-    DispatchQueue.main.async {
+    // WHY: UIDevice.current.batteryLevel chỉ được đọc trên main thread
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
       self.sendEvent(withName: "batteryLevelChanged",
                 body: ["level": Int(UIDevice.current.batteryLevel * 100)])
     }
@@ -78,9 +79,9 @@ class DeviceBattery: RCTEventEmitter {
 
   @objc private func lowPowerModeDidChange() {
     guard hasListeners else { return }
-    // WHY: NSProcessInfoPowerStateDidChange có thể fire trên background thread khi toggle từ Control Center
-    // sendEvent không thread-safe → phải dispatch về main
-    DispatchQueue.main.async {
+    // WHY: NSProcessInfoPowerStateDidChange có thể fire trên background thread — sendEvent không thread-safe
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
       self.sendEvent(withName: "lowPowerModeChanged",
                 body: ["isLowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled])
     }

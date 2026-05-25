@@ -28,6 +28,31 @@
 
 ## Ghi chú
 
+### TurboModule crash: `std::__throw_bad_function_call` khi toggle Low Power Mode
+
+**Triệu chứng**: App crash khi kéo Control Center và toggle Low Power Mode. Mở lại thì state đúng nhưng không update real-time.
+
+**Root cause**: `DeviceBatteryImpl.init()` đăng ký NotificationCenter ngay lập tức. Nếu notification fire trước khi `getTurboModule` chạy xong, `EventEmitter_` (một `std::function` do TurboModule runtime set) vẫn đang empty → gọi vào empty function → crash.
+
+**Legacy không bị** vì `RCTEventEmitter.startObserving()` chỉ đăng ký notification khi JS add listener — lúc đó module đã fully initialized.
+
+**Fix**: Thêm `_isInstalled` flag trong `.mm`, set `YES` trong `getTurboModule`, guard trước mọi `emitOn*` call.
+
+```objc
+// RCTNativeDeviceBattery.mm
+- (std::shared_ptr<...>)getTurboModule:(...) {
+  _isInstalled = YES;  // EventEmitter_ được set từ đây mới safe để emit
+  return std::make_shared<...>(params);
+}
+```
+
+**Threading rule**:
+- `UIDevice.current.batteryLevel` → phải đọc trên main thread → dispatch trong Swift
+- `ProcessInfo.processInfo.isLowPowerModeEnabled` → thread-safe → không cần dispatch trong Swift
+- `emitOn*` (CodeGen) → phải gọi trên main thread → dispatch trong `.mm`
+
+---
+
 ### Tại sao `import React` trong Swift, không dùng bridging header?
 
 Dùng `SWIFT_OBJC_BRIDGING_HEADER` trong RN 0.74+ sẽ gây lỗi:
