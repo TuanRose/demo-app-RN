@@ -1,0 +1,190 @@
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Production Release — App Store + Google Play
+#
+#  Trigger: MANUAL ONLY (workflow_dispatch) — no auto trigger
+#
+#  WHY no auto trigger on git push:
+#  Production releases are a human decision, not a bot's.
+#  QA must approve the build on TestFlight/Play Internal first.
+#  Then PM/TL clicks "Run workflow" here to release.
+#
+#  Standard flow:
+#  1. push to main → [ios-beta] + [android-beta] run automatically
+#  2. QA tests on TestFlight + Play Internal Testing
+#  3. QA approves → PM/TL goes to GitHub Actions → "Run workflow" here
+#  4. iOS: submit to App Store (review takes 1-3 days)
+#     Android: promote to Production with staged rollout
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+name: Production Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Target platform to release'
+        required: true
+        type: choice
+        options:
+          - both       # iOS + Android simultaneously
+          - ios        # iOS only (App Store)
+          - android    # Android only (Play Production)
+
+      version:
+        description: 'Version number (e.g. 1.2.3) — leave blank to use APP_VERSION secret'
+        required: false
+        default: ''
+
+      android_rollout:
+        description: 'Android staged rollout % (0.1=10%, 0.5=50%, 1.0=100%)'
+        required: false
+        default: '0.1'
+
+      release_note:
+        description: 'Release note (internal team note, not shown to end users)'
+        required: false
+        default: 'Production release'
+
+# Only one production release can run at a time
+concurrency:
+  group: production-release
+  cancel-in-progress: false  # Never cancel a production release in progress!
+
+jobs:
+  # ─────────────────────────────────────────────────────────
+  #  iOS Production
+  # ─────────────────────────────────────────────────────────
+  release-ios:
+    name: iOS → App Store
+    # WHY if condition: only runs when platform is 'ios' or 'both'
+    if: ${{ inputs.platform == 'ios' || inputs.platform == 'both' }}
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 'latest-stable'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install CocoaPods
+        run: bundle exec pod install --project-directory=ios
+
+      - name: Submit to App Store
+        env:
+          ASC_KEY_ID:      ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID:   ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APP_IDENTIFIER:  ${{ secrets.APP_IDENTIFIER }}
+          TEAM_ID:         ${{ secrets.TEAM_ID }}
+          # WHY: use version from input if provided, otherwise fall back to secret
+          APP_VERSION: ${{ inputs.version != '' && inputs.version || secrets.APP_VERSION }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: bundle exec fastlane ios production
+
+      - name: Log release info
+        if: success()
+        run: |
+          echo "✅ iOS submitted to App Store"
+          echo "Version: ${{ inputs.version != '' && inputs.version || 'from secret' }}"
+          echo "Note: ${{ inputs.release_note }}"
+
+  # ─────────────────────────────────────────────────────────
+  #  Android Production
+  # ─────────────────────────────────────────────────────────
+  release-android:
+    name: Android → Play Production
+    if: ${{ inputs.platform == 'android' || inputs.platform == 'both' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Promote to Production
+        env:
+          APP_IDENTIFIER:            ${{ secrets.APP_IDENTIFIER }}
+          GOOGLE_PLAY_JSON_KEY_PATH: ${{ secrets.GOOGLE_PLAY_JSON_KEY_PATH }}
+          APP_VERSION: ${{ inputs.version != '' && inputs.version || secrets.APP_VERSION }}
+          # Override rollout from workflow input
+          ROLLOUT_PERCENTAGE: ${{ inputs.android_rollout }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: bundle exec fastlane android production
+
+      - name: Log release info
+        if: success()
+        run: |
+          ROLLOUT="${{ inputs.android_rollout }}"
+          PCT=$(python3 -c "print(int(float('${ROLLOUT}') * 100))")
+          echo "✅ Android promoted to Play Production"
+          echo "Rollout: ${ROLLOUT} (${PCT}%)"
+          echo "Note: ${{ inputs.release_note }}"
+
+  # ─────────────────────────────────────────────────────────
+  #  Summary Job
+  #  Runs after both platform jobs finish, summarizes results
+  # ─────────────────────────────────────────────────────────
+  summary:
+    name: Release Summary
+    # needs: waits for both jobs above to finish (success or failure)
+    needs: [release-ios, release-android]
+    # always() = runs even if dependent jobs are skipped or failed
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Release Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Production Release Summary"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Platform:  ${{ inputs.platform }}"
+          echo "Version:   ${{ inputs.version != '' && inputs.version || 'from secret' }}"
+          echo "Rollout:   ${{ inputs.android_rollout }} (Android)"
+          echo "Note:      ${{ inputs.release_note }}"
+          echo "Triggered: ${{ github.actor }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "iOS:     ${{ needs.release-ios.result }}"
+          echo "Android: ${{ needs.release-android.result }}"

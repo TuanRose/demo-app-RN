@@ -2,74 +2,12 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
-/**
- * This is the configuration block to customize your React Native Android app.
- * By default you don't need to apply any configuration, just uncomment the lines you need.
- */
 react {
-    /* Folders */
-    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
-    // cliFile = file("../../node_modules/react-native/cli.js")
-
-    /* Variants */
-    //   The list of variants to that are debuggable. For those we're going to
-    //   skip the bundling of the JS bundle and the assets. Default is "debug", "debugOptimized".
-    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "liteDebugOptimized", "prodDebug", "prodDebugOptimized"]
-
-    /* Bundling */
-    //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
-    //
-    //   The command to run when bundling. By default is 'bundle'
-    // bundleCommand = "ram-bundle"
-    //
-    //   The path to the CLI configuration file. Default is empty.
-    // bundleConfig = file(../rn-cli.config.js)
-    //
-    //   The name of the generated asset file containing your JS bundle
-    // bundleAssetName = "MyApplication.android.bundle"
-    //
-    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
-    // entryFile = file("../js/MyApplication.android.js")
-    //
-    //   A list of extra flags to pass to the 'bundle' commands.
-    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
-    // extraPackagerArgs = []
-
-    /* Hermes Commands */
-    //   The hermes compiler command to run. By default it is 'hermesc'
-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
-    //
-    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
-    // hermesFlags = ["-O", "-output-source-map"]
-
-    /* Autolinking */
     autolinkLibrariesWithApp()
 }
 
-/**
- * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
- */
 def enableProguardInReleaseBuilds = false
 
-/**
- * The preferred build flavor of JavaScriptCore (JSC)
- *
- * For example, to use the international variant, you can use:
- * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
- *
- * The international variant includes ICU i18n library and necessary data
- * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
- * give correct results when using with locales other than en-US. Note that
- * this variant is about 6MiB larger per architecture than default.
- */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
@@ -78,13 +16,20 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.demo_app"
+
     defaultConfig {
         applicationId "com.demo_app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+
+        // WHY project.findProperty thay vì hardcode:
+        // - Fastlane truyền versionCode/versionName qua -P gradle properties
+        // - Local build: gradle.properties hoặc dùng default dưới đây
+        // - Không bao giờ hardcode version vào đây vì CI cần override tự động
+        versionCode project.findProperty('versionCode')?.toInteger() ?: 1
+        versionName project.findProperty('versionName') ?: "1.0.0"
     }
+
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -92,23 +37,75 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // WHY đọc từ env var với fallback về debug keystore:
+            // - CI (Fastlane): credentials được inject qua android.injected.signing.*
+            //   Android Gradle Plugin xử lý những properties này và OVERRIDE signingConfig này.
+            //   Nên thực tế trên CI, block này bị override hoàn toàn bởi Fastlane.
+            // - Local build với release keystore: set ANDROID_KEYSTORE_* env vars
+            // - Local build không có keystore: fallback về debug.keystore (không thể upload Play Store)
+            //
+            // TẠI SAO KHÔNG dùng debug keystore cho release build:
+            // - debug.keystore không được Google tin tưởng
+            // - APK/AAB ký bằng debug key sẽ bị Play Store reject
+            // - Nếu publish nhầm debug-signed APK → phải tạo app ID mới (không thể update)
+            def ksPath = System.getenv('ANDROID_KEYSTORE_PATH')
+            storeFile     ksPath ? rootProject.file(ksPath) : file('debug.keystore')
+            storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD') ?: 'android'
+            keyAlias      System.getenv('ANDROID_KEYSTORE_ALIAS')    ?: 'androiddebugkey'
+            keyPassword   System.getenv('ANDROID_KEY_PASSWORD')       ?: 'android'
+        }
     }
+
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // WHY signingConfig signingConfigs.release thay vì debug:
+            // Bản gốc RN template dùng debug cho release — đây là BUG tiềm ẩn.
+            // debug signingConfig → app ký bằng debug key → Play Store reject.
+            // release signingConfig đọc từ env vars, Fastlane override bằng injected properties.
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+
+    // YARA pattern: mỗi environment là một productFlavor riêng biệt
+    // → applicationId khác nhau → cài song song trên cùng 1 device
+    // → CI inject ANDROID_BUILD_FLAVOUR → Fastlane build đúng flavor
+    flavorDimensions "environment"
+
+    productFlavors {
+        // Prod: applicationId = "com.demo_app" (không suffix)
+        // → đây là app trên Google Play Store
+        // → tương đương YARA: com.yara.connect.prod trên Play Store
+        Prod {
+            dimension "environment"
+        }
+
+        // Dev: applicationId = "com.demo_app.dev"
+        // → cài song song với Prod trên device
+        // → dùng cho local development / debug
+        Dev {
+            dimension "environment"
+            applicationIdSuffix ".dev"
+            resValue "string", "app_name", "DemoApp Dev"
+        }
+
+        // Antonio: applicationId = "com.demo_app.antonio"
+        // → Firebase App Distribution (không lên Play Store)
+        // → tương đương YARA: com.yara.connect.qa trên Firebase
+        Antonio {
+            dimension "environment"
+            applicationIdSuffix ".antonio"
+            resValue "string", "app_name", "DemoApp Antonio"
         }
     }
 }
 
 dependencies {
-    // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
     if (hermesEnabled.toBoolean()) {

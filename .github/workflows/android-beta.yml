@@ -1,0 +1,165 @@
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Android Beta — Build + Upload to Google Play Internal Testing
+#
+#  Trigger: push to main branch
+#  Runner:  ubuntu-latest (Linux, no macOS needed — ~10x cheaper)
+#  Cost:    ~$0.008/min × ~15 min = ~$0.12/build
+#
+#  Estimated total time: 15-25 min
+#  - npm ci:          2-3 min
+#  - Gradle build:    10-15 min (with cache)
+#  - supply upload:   2-5 min
+#
+#  WHY ubuntu (not macos):
+#  Android builds don't need Xcode or macOS.
+#  ubuntu-latest has JDK + Android SDK preinstalled.
+#  ~10x cheaper than macos-15 — significant cost savings.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+name: Android Beta → Play Internal
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/deploy-testflight.yml'
+      - '.github/workflows/production.yml'
+
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual trigger'
+        required: false
+        default: 'Manual release'
+
+concurrency:
+  group: android-beta
+  cancel-in-progress: true
+
+jobs:
+  deploy-android:
+    name: Build & Upload to Play Internal Testing
+    runs-on: ubuntu-latest
+
+    steps:
+      # ─── Checkout ──────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ─── Node.js ───────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # ─── Java ──────────────────────────────────────────────
+      # WHY Java 17: Android Gradle Plugin 8+ requires Java 17+.
+      # Java 11 will fail with cryptic errors.
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # ─── Ruby + Bundler ────────────────────────────────────
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      # ─── JS Dependencies ───────────────────────────────────
+      - name: Install JS dependencies
+        run: npm ci
+
+      # ─── Gradle Cache ──────────────────────────────────────
+      # WHY cache Gradle:
+      # Gradle downloads dependencies in 5-10 min on first run.
+      # Cache ~/.gradle/caches → subsequent runs take ~30 sec.
+      # Cache key includes build.gradle hash —
+      # invalidated when dependencies change.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ─── Android SDK ───────────────────────────────────────
+      # WHY setup-android: ubuntu-latest ships with Android SDK but may
+      # not have the exact version needed. This action ensures the right version.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ─── Keystore Setup ────────────────────────────────────
+      # WHY decode keystore from Base64:
+      # Binary files (.keystore) cannot be stored directly in GitHub Secrets.
+      # Solution: encode keystore as Base64 string → store in secret
+      # → decode back to file at build time.
+      #
+      # Generate Base64 string: base64 -i release.keystore | pbcopy
+      # Paste into GitHub Secret ANDROID_KEYSTORE_BASE64
+      - name: Decode Android Keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /tmp/release.keystore
+          echo "ANDROID_KEYSTORE_PATH=/tmp/release.keystore" >> $GITHUB_ENV
+
+      # ─── Decode Google Play JSON key ───────────────────────
+      # WHY decode JSON key at runtime (not store path as secret):
+      # CI runner is ephemeral — no persistent filesystem.
+      # Store the JSON content as Base64 → decode to /tmp at build time.
+      # Generate: base64 -i fastlane-ci.json | pbcopy → secret GOOGLE_PLAY_JSON_KEY_BASE64
+      - name: Decode Google Play JSON key
+        env:
+          GOOGLE_PLAY_JSON_KEY_BASE64: ${{ secrets.GOOGLE_PLAY_JSON_KEY_BASE64 }}
+        run: |
+          echo "$GOOGLE_PLAY_JSON_KEY_BASE64" | base64 --decode > /tmp/play-key.json
+          echo "GOOGLE_PLAY_JSON_KEY_PATH=/tmp/play-key.json" >> $GITHUB_ENV
+
+      # ─── Fastlane Build + Upload ───────────────────────────
+      - name: Build & Upload to Play Internal Testing
+        env:
+          # Android signing
+          ANDROID_KEYSTORE_PATH:     ${{ env.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_ALIAS:    ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD:      ${{ secrets.ANDROID_KEY_PASSWORD }}
+          # Google Play
+          GOOGLE_PLAY_JSON_KEY_PATH: ${{ env.GOOGLE_PLAY_JSON_KEY_PATH }}
+          APP_IDENTIFIER:            ${{ secrets.APP_IDENTIFIER }}
+          APP_VERSION:               ${{ secrets.APP_VERSION }}
+          # YARA pattern: inject environment qua env var → Fastfile đọc ANDROID_BUILD_FLAVOUR
+          # "Prod" → gradle builds ProdRelease → applicationId = com.demo_app (no suffix)
+          ANDROID_BUILD_FLAVOUR:     Prod
+          # Notifications
+          SLACK_WEBHOOK_URL:         ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: bundle exec fastlane android beta
+
+      # ─── Upload AAB artifact ───────────────────────────────
+      - name: Upload .aab artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo_app-prod-${{ github.sha }}.aab
+          path: android/app/build/outputs/bundle/prodRelease/app-prod-release.aab
+          retention-days: 7
+
+      # ─── Cleanup secrets ───────────────────────────────────
+      # WHY cleanup both files: runners can be reused — don't leave
+      # keystore or service account credentials on the runner filesystem.
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          rm -f /tmp/release.keystore
+          rm -f /tmp/play-key.json

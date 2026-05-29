@@ -1,20 +1,91 @@
-default_platform(:ios)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  demo_app — Fastfile (Production-grade CICD)
+#
+#  iOS:     bundle exec fastlane ios <lane>
+#  Android: bundle exec fastlane android <lane>
+#
+#  Lanes:
+#    iOS:     sync_certs | beta | production | adhoc | build_only
+#             refresh_profile | register_new_device | bump_version
+#    Android: beta | production | build_only | bump_version
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# ═══════════════════════════════════════════════════
-#  iOS — TestFlight / App Store
-#  Chạy: bundle exec fastlane ios <lane>
-# ═══════════════════════════════════════════════════
+# ────────────────────────────────────────────────────────────────
+#  Shared helper — App Store Connect API Key
+#
+#  WHY API Key instead of App-Specific Password:
+#  - App-Specific Password requires interactive 2FA → CI hangs waiting for OTP
+#  - API Key is a service account, not blocked by 2FA
+#  - Can be revoked independently without affecting the main Apple ID
+# ────────────────────────────────────────────────────────────────
+def asc_api_key
+  app_store_connect_api_key(
+    key_id:      ENV.fetch("ASC_KEY_ID",      ""),
+    issuer_id:   ENV.fetch("ASC_ISSUER_ID",   ""),
+    key_content: ENV.fetch("ASC_KEY_CONTENT", ""),
+    # WHY duration 1200s: iOS builds typically take 15-25 min.
+    # Default 500s may expire mid-build → signing fails.
+    duration:    1200,
+  )
+end
+
+# ────────────────────────────────────────────────────────────────
+#  Shared helper — Git release notes
+#
+#  WHY: Automatically pulls commit messages from git as changelog.
+#  Lets QA know what changed in the build without asking the dev.
+# ────────────────────────────────────────────────────────────────
+def release_notes
+  changelog = `git log -10 --pretty=format:"• %s" --no-merges`.strip
+  changelog.empty? ? "No changelog available" : changelog
+end
+
+# ────────────────────────────────────────────────────────────────
+#  Shared helper — Slack notify (only runs when webhook is set)
+# ────────────────────────────────────────────────────────────────
+def notify_slack(message:, success: true, payload: {})
+  return unless ENV["SLACK_WEBHOOK_URL"]
+  slack(
+    message:     message,
+    webhook_url: ENV["SLACK_WEBHOOK_URL"],
+    success:     success,
+    payload:     payload.merge(
+      "Branch" => (ENV["GITHUB_REF_NAME"] || `git rev-parse --abbrev-ref HEAD`.strip),
+      "Commit" => `git log -1 --format="%s"`.strip,
+    ),
+  )
+end
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  iOS Platform
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 platform :ios do
 
-  desc "Sync cert + profile từ match repo (chạy 1 lần khi setup máy mới hoặc cert hết hạn)"
+  # WHY before_all runs before EVERY lane in this block:
+  # setup_ci creates a temporary keychain on the CI runner (macOS GitHub-hosted)
+  # and keeps it unlocked throughout the build.
+  #
+  # Without this → codesign will HANG indefinitely on CI waiting for a password
+  # prompt that no one is there to enter → CI timeout after 40-60 min.
+  #
+  # On local machines, setup_ci is a complete no-op — fully safe.
+  before_all do
+    setup_ci
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  sync_certs
+  #  Run once when: setting up a new machine, cert expires (1 year), adding a bundle ID
+  #  Do NOT run automatically on CI.
+  #
+  #  WHY readonly: false here but true on CI:
+  #  - readonly: false = match is allowed to CREATE new certs/profiles if missing
+  #  - readonly: true  = match only FETCHES existing certs, errors if not found
+  #  CI always uses readonly: true to avoid accidentally creating duplicate certs
+  # ─────────────────────────────────────────────────────────────
+  desc "Sync all certs + profiles from the match repo. Run once when setting up a new machine or when a cert expires."
   lane :sync_certs do
-    api_key = app_store_connect_api_key(
-      key_id:      ENV["ASC_KEY_ID"],
-      issuer_id:   ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_KEY_CONTENT"],
-    )
-    # WHY: readonly: false để match có thể tạo cert/profile mới nếu chưa tồn tại.
-    # Sau khi setup xong, CI luôn dùng readonly: true.
+    api_key = asc_api_key
     ["development", "adhoc", "appstore"].each do |type|
       match(
         type:                    type,
@@ -22,38 +93,51 @@ platform :ios do
         api_key:                 api_key,
         app_identifier:          ENV["APP_IDENTIFIER"],
         git_url:                 ENV["MATCH_GIT_URL"],
+        # WHY git_basic_authorization instead of SSH:
+        # CI runners (GitHub Actions, AppCenter) don't have SSH keys set up.
+        # HTTPS + token works across all environments.
+        # Base64-encoding "x-access-token:<token>" is the format GitHub requires.
         git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
       )
     end
+    UI.success "✅ All certs synced! Ready to build locally or on CI."
   end
 
-  desc "Build và upload lên TestFlight"
+  # ─────────────────────────────────────────────────────────────
+  #  beta
+  #  Build .ipa → upload to TestFlight (internal testing)
+  #
+  #  Flow:
+  #  1. Query ASC → get latest build number → +1
+  #  2. match fetch cert + appstore profile
+  #  3. gym build .ipa with manual signing
+  #  4. pilot upload to TestFlight
+  #  5. Slack notify
+  # ─────────────────────────────────────────────────────────────
+  desc "Build .ipa and upload to TestFlight (internal testing)"
   lane :beta do
-    # WHY: setup_ci tạo temporary keychain trên CI runner và giữ nó unlocked suốt build.
-    # Không có step này, codesign trong [CP] Embed Pods Frameworks sẽ hang vô thời hạn
-    # chờ password prompt — trên CI không có ai nhập → build treo 40+ phút.
-    setup_ci
+    api_key = asc_api_key
 
-    # WHY: API Key thay App-Specific Password — không bị block bởi 2FA, dùng được trên CI
-    api_key = app_store_connect_api_key(
-      key_id:      ENV["ASC_KEY_ID"],
-      issuer_id:   ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_KEY_CONTENT"],
-    )
-
-    # WHY: CI runner là ephemeral — xcodeproj trong repo luôn giữ build number cũ.
-    # Phải query ASC để lấy build number thực tế đang cao nhất, rồi +1.
+    # WHY query build number from ASC:
+    # CI runners are ephemeral — the xcodeproj in the repo ALWAYS holds a stale build number.
+    # Without incrementing correctly → Apple rejects "build number already exists".
+    # latest_testflight_build_number queries the App Store Connect API in real-time.
+    # initial_build_number: 0 → first ever build (no builds yet) returns 0, +1 = 1.
     latest_build = latest_testflight_build_number(
-      api_key:        api_key,
-      app_identifier: ENV["APP_IDENTIFIER"],
+      api_key:              api_key,
+      app_identifier:       ENV["APP_IDENTIFIER"],
+      initial_build_number: 0,
     )
+    new_build_number = latest_build + 1
+
     increment_build_number(
-      build_number: latest_build + 1,
-      xcodeproj:    "ios/demo_app.xcodeproj"
+      build_number: new_build_number,
+      xcodeproj:    "ios/demo_app.xcodeproj",
     )
 
-    # WHY: match fetch cert + profile từ git repo (encrypted), install vào keychain/system.
-    # readonly: true — CI không được phép tạo cert mới, chỉ dùng cert đã có trong repo.
+    # WHY readonly: true on CI:
+    # CI must not create new certs. Only fetch existing ones from the match repo.
+    # If a cert is missing → fail explicitly rather than creating an unexpected cert.
     match(
       type:                    "appstore",
       readonly:                true,
@@ -63,114 +147,99 @@ platform :ios do
       git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
     )
 
-    # WHY: PROVISIONING_PROFILE_SPECIFIER phải khớp với tên profile match tạo ra.
-    # Match naming convention: "match AppStore <bundle_id>" — pass qua xcargs để override Xcode project setting.
+    # WHY override CODE_SIGN_STYLE to Manual via xcargs:
+    # Xcode can "helpfully" switch back to Automatic signing during the build,
+    # ignoring the profile match just fetched and using a different one → build fails.
+    # Setting Manual + explicit profile name guarantees the correct cert is used.
+    #
+    # PROVISIONING_PROFILE_SPECIFIER naming convention for match:
+    # "match AppStore com.example.app" — must match exactly.
     gym(
       scheme:           "demo_app",
       workspace:        "ios/demo_app.xcworkspace",
       configuration:    "Release",
       export_method:    "app-store",
-      output_directory: "./build",
+      output_directory: "./build/ios",
       output_name:      "demo_app.ipa",
-      include_bitcode:  false,
-      xcargs:           "CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER='match AppStore #{ENV["APP_IDENTIFIER"]}' CODE_SIGN_IDENTITY='iPhone Distribution'",
+      include_bitcode:  false,  # WHY false: Apple deprecated bitcode since Xcode 14
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual",
+        "PROVISIONING_PROFILE_SPECIFIER='match AppStore #{ENV['APP_IDENTIFIER']}'",
+        "CODE_SIGN_IDENTITY='iPhone Distribution'",
+      ].join(" "),
     )
 
+    # WHY pilot (= upload_to_testflight):
+    # skip_waiting_for_build_processing: true → Apple takes 5-30 min to process the build.
+    # CI doesn't need to wait — the build appears in TestFlight automatically once Apple finishes.
+    # distribute_external: false → internal testers only (no Apple review required).
     pilot(
       api_key:                           api_key,
-      ipa:                               "./build/demo_app.ipa",
+      ipa:                               "./build/ios/demo_app.ipa",
       skip_waiting_for_build_processing: true,
       distribute_external:               false,
+      changelog:                         release_notes,
     )
 
-    UI.success "✅ iOS: Upload thành công! Vào App Store Connect > TestFlight để xem."
+    version = get_version_number(xcodeproj: "ios/demo_app.xcodeproj", target: "demo_app")
+    UI.success "✅ iOS #{version} (#{new_build_number}) → TestFlight!"
+
+    notify_slack(
+      message: "🍎 iOS #{version} (#{new_build_number}) uploaded to TestFlight!",
+      payload: { "Release Notes" => release_notes },
+    )
   end
 
+  # ─────────────────────────────────────────────────────────────
+  #  production
+  #  Submit build to App Store for Apple review
+  #
+  #  WHY two-step workflow (beta → production):
+  #  - Step 1 (beta): QA tests on TestFlight, confirms stable
+  #  - Step 2 (production): Submit the QA-approved build to App Store
+  #  No rebuild needed — Apple uses the binary already in TestFlight
+  #
+  #  IMPORTANT: Set up metadata + screenshots before running this lane
+  #  for the first time. Set skip_metadata: false, skip_screenshots: false when ready.
+  # ─────────────────────────────────────────────────────────────
+  desc "Submit build to App Store for review. Run after QA has approved the build on TestFlight."
+  lane :production do
+    api_key = asc_api_key
+    version = get_version_number(xcodeproj: "ios/demo_app.xcodeproj", target: "demo_app")
 
-  # ─────────────────────────────────────────────────
-  #  Local-only lanes (chạy tay, không dùng trên CI)
-  # ─────────────────────────────────────────────────
+    # WHY upload_to_app_store (alias: deliver):
+    # submit_for_review: true → automatically submits after upload, no need to go to App Store Connect
+    # automatic_release: false → Apple approves but does NOT auto-release
+    #   Team manually clicks "Release this version" — avoids accidental releases
+    # force: true → skip HTML report verification (no browser on CI)
+    # skip_metadata/skip_screenshots: true → not set up yet, enable when ready
+    upload_to_app_store(
+      api_key:           api_key,
+      app_identifier:    ENV["APP_IDENTIFIER"],
+      submit_for_review: true,
+      automatic_release: false,
+      force:             true,
+      skip_metadata:     true,
+      skip_screenshots:  true,
+      # WHY no .ipa passed: deliver picks the latest build from TestFlight.
+      # No need to re-upload the binary — saves time.
+    )
 
-  desc "Refresh provisioning profile khi có device mới được add vào Apple Portal"
-  lane :refresh_profile do
-    api_key = app_store_connect_api_key(
-      key_id:      ENV["ASC_KEY_ID"],
-      issuer_id:   ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_KEY_CONTENT"],
+    notify_slack(
+      message: "🚀 iOS #{version} submitted for App Store review! Apple typically takes 1-3 days.",
     )
-    UI.message "🔄 Refreshing development + adhoc profiles..."
-    # WHY: force_for_new_devices: true chỉ regenerate profile khi danh sách device thay đổi.
-    # Cert không bị revoke — an toàn cho cả team.
-    match(
-      type:                    "development",
-      readonly:                false,
-      force_for_new_devices:   true,
-      api_key:                 api_key,
-      app_identifier:          ENV["APP_IDENTIFIER"],
-      git_url:                 ENV["MATCH_GIT_URL"],
-      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
-    )
-    match(
-      type:                    "adhoc",
-      readonly:                false,
-      force_for_new_devices:   true,
-      api_key:                 api_key,
-      app_identifier:          ENV["APP_IDENTIFIER"],
-      git_url:                 ENV["MATCH_GIT_URL"],
-      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
-    )
-    UI.success "✅ Provisioning profiles updated successfully!"
+    UI.success "✅ iOS #{version} submitted for review!"
   end
 
-  desc "Đăng ký device mới lên Apple Portal rồi refresh development profile"
-  lane :register_new_device do
-    api_key = app_store_connect_api_key(
-      key_id:      ENV["ASC_KEY_ID"],
-      issuer_id:   ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_KEY_CONTENT"],
-    )
-    device_name = prompt(text: "Enter the device name: ")
-    device_udid = prompt(text: "Enter the device UDID: ")
-    # WHY: register_devices thêm UDID vào Apple Developer Portal (team level).
-    # api_key thay thế username/password — không bị chặn bởi 2FA.
-    register_devices(
-      devices: { device_name => device_udid },
-      api_key: api_key,
-    )
-    match(
-      type:                    "development",
-      readonly:                false,
-      force_for_new_devices:   true,
-      api_key:                 api_key,
-      app_identifier:          ENV["APP_IDENTIFIER"],
-      git_url:                 ENV["MATCH_GIT_URL"],
-      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
-    )
-    UI.success "✅ Device '#{device_name}' registered and development profile updated!"
-  end
-
-  desc "Chỉ build .ipa, không upload"
-  lane :build_only do
-    gym(
-      scheme:           "demo_app",
-      workspace:        "ios/demo_app.xcworkspace",
-      configuration:    "Release",
-      export_method:    "app-store",
-      output_directory: "./build",
-      output_name:      "demo_app.ipa",
-      include_bitcode:  false,
-      xcargs:           "-allowProvisioningUpdates",
-    )
-    UI.success "✅ iOS: Build xong: ./build/demo_app.ipa"
-  end
-    desc "Build .ipa adhoc để distribute qua Diawi/link trực tiếp"
-  lane :build_adhoc do
-    api_key = app_store_connect_api_key(
-      key_id:      ENV["ASC_KEY_ID"],
-      issuer_id:   ENV["ASC_ISSUER_ID"],
-      key_content: ENV["ASC_KEY_CONTENT"],
-    )
-    # WHY: phải fetch adhoc profile trước khi build — gym cần profile này để ký .ipa
+  # ─────────────────────────────────────────────────────────────
+  #  adhoc
+  #  Build .ipa for ad-hoc distribution via direct link (Diawi, Firebase)
+  #  No App Store needed, no TestFlight install required.
+  #  Limitation: only installs on devices registered in Apple Developer Portal.
+  # ─────────────────────────────────────────────────────────────
+  desc "Build .ipa for ad-hoc distribution via Diawi or Firebase Distribution"
+  lane :adhoc do
+    api_key = asc_api_key
     match(
       type:                    "adhoc",
       readonly:                true,
@@ -184,56 +253,332 @@ platform :ios do
       workspace:        "ios/demo_app.xcworkspace",
       configuration:    "Release",
       export_method:    "ad-hoc",
-      output_directory: "./build",
+      output_directory: "./build/ios",
       output_name:      "demo_app_adhoc.ipa",
       include_bitcode:  false,
-      xcargs:           "CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER='match AdHoc #{ENV['APP_IDENTIFIER']}' CODE_SIGN_IDENTITY='iPhone Distribution'",
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual",
+        "PROVISIONING_PROFILE_SPECIFIER='match AdHoc #{ENV['APP_IDENTIFIER']}'",
+        "CODE_SIGN_IDENTITY='iPhone Distribution'",
+      ].join(" "),
     )
-    UI.success "✅ iOS: Build adhoc xong: ./build/demo_app_adhoc.ipa — Upload lên Diawi để distribute."
+    UI.success "✅ Adhoc build: ./build/ios/demo_app_adhoc.ipa"
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  build_only
+  #  Build .ipa only, no upload. Use to verify build config is not broken.
+  # ─────────────────────────────────────────────────────────────
+  desc "Build .ipa only (no upload) — verify build config"
+  lane :build_only do
+    gym(
+      scheme:           "demo_app",
+      workspace:        "ios/demo_app.xcworkspace",
+      configuration:    "Release",
+      export_method:    "app-store",
+      output_directory: "./build/ios",
+      output_name:      "demo_app.ipa",
+      include_bitcode:  false,
+      xcargs:           "-allowProvisioningUpdates",
+    )
+    UI.success "✅ Build complete: ./build/ios/demo_app.ipa"
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  bump_version
+  #  Increment version number (major/minor/patch). Run before a release.
+  #  Example: bundle exec fastlane ios bump_version type:minor
+  # ─────────────────────────────────────────────────────────────
+  desc "Increment version number. Param: type (major|minor|patch). Example: bundle exec fastlane ios bump_version type:minor"
+  lane :bump_version do |options|
+    bump_type = options[:type] || "patch"
+    increment_version_number(
+      bump_type:  bump_type,
+      xcodeproj:  "ios/demo_app.xcodeproj",
+    )
+    version = get_version_number(xcodeproj: "ios/demo_app.xcodeproj", target: "demo_app")
+    UI.success "✅ iOS version bumped to #{version}"
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  refresh_profile
+  #  Run after adding a new device to Apple Developer Portal.
+  #  WHY NOT revoking the cert: force_for_new_devices: true only regenerates
+  #  the provisioning profile (including the new device), does not touch the cert.
+  #  Revoking the cert would break builds for the entire team.
+  # ─────────────────────────────────────────────────────────────
+  desc "Refresh provisioning profile after adding a new device. Does not revoke the cert."
+  lane :refresh_profile do
+    api_key = asc_api_key
+    ["development", "adhoc"].each do |type|
+      match(
+        type:                  type,
+        readonly:              false,
+        force_for_new_devices: true,
+        api_key:               api_key,
+        app_identifier:        ENV["APP_IDENTIFIER"],
+        git_url:               ENV["MATCH_GIT_URL"],
+        git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
+      )
+    end
+    UI.success "✅ Development + AdHoc profiles refreshed!"
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  register_new_device
+  #  Register a new device in Apple Developer Portal.
+  #  Automatically refreshes the profile so the device can install adhoc/dev builds.
+  # ─────────────────────────────────────────────────────────────
+  desc "Register a new device in Apple Portal then refresh the development profile"
+  lane :register_new_device do
+    api_key     = asc_api_key
+    device_name = prompt(text: "Device name (e.g. Antonio iPhone 15): ")
+    device_udid = prompt(text: "Device UDID: ")
+
+    # WHY register_devices adds the UDID to Apple Developer Portal (team level).
+    # Without this → the device cannot install adhoc/dev builds.
+    register_devices(
+      devices: { device_name => device_udid },
+      api_key: api_key,
+    )
+
+    match(
+      type:                  "development",
+      readonly:              false,
+      force_for_new_devices: true,
+      api_key:               api_key,
+      app_identifier:        ENV["APP_IDENTIFIER"],
+      git_url:               ENV["MATCH_GIT_URL"],
+      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
+    )
+    UI.success "✅ Device '#{device_name}' (#{device_udid}) registered!"
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  error — Cleanup when a lane fails
+  # ─────────────────────────────────────────────────────────────
+  error do |lane, exception|
+    UI.error "❌ iOS lane :#{lane} failed: #{exception.message}"
+    notify_slack(
+      message: "❌ iOS lane :#{lane} failed!\n#{exception.message}",
+      success: false,
+    )
   end
 
 end
 
-# ═══════════════════════════════════════════════════
-#  Android — Google Play Internal Testing / Production
-#  Chạy: bundle exec fastlane android <lane>
-#
-#  Prerequisites:
-#    1. Tạo Release Keystore (xem .env.example)
-#    2. Tạo Google Play service account JSON key
-#    3. Upload thủ công lần đầu qua Google Play Console
-#       (supply chỉ hoạt động từ lần 2 trở đi)
-# ═══════════════════════════════════════════════════
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Android Platform
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 platform :android do
 
-  desc "Build AAB và upload lên Google Play Internal Testing"
+  # ─────────────────────────────────────────────────────────────
+  #  beta
+  #  Build .aab (Android App Bundle) → upload to Play Internal Testing
+  #
+  #  WHY AAB instead of APK:
+  #  Google Play requires AAB since Aug 2021 for new apps.
+  #  AAB is 15-20% smaller than APK; Google Play generates optimized APKs per device.
+  #
+  #  WHY Internal Testing:
+  #  - No Apple-style review → publishes within minutes
+  #  - Only emails invited in Play Console can see the build
+  #  - After QA approval → promote to production (no rebuild needed)
+  #
+  #  NOTE: First upload MUST be done manually via Google Play Console.
+  #  supply (fastlane) only works from the second upload onwards.
+  # ─────────────────────────────────────────────────────────────
+  desc "Build .aab and upload to Google Play Internal Testing"
   lane :beta do
+    # WHY query versionCode from Play Store:
+    # Same reason as iOS: CI runners are ephemeral, can't persist state.
+    # versionCode in build.gradle is always stale → query real-time.
+    # rescue: first time ever (internal track has no builds yet) → default to 0.
+    current_version_code = begin
+      google_play_track_version_codes(
+        package_name: ENV["APP_IDENTIFIER"],
+        track:        "internal",
+        json_key:     ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
+      ).max
+    rescue
+      0
+    end || 0
+
+    version_code = current_version_code + 1
+    version_name = ENV["APP_VERSION"] || "1.0.0"
+    # YARA pattern: CI injects ANDROID_BUILD_FLAVOUR → Fastfile reads dynamically
+    # Local: default to "Prod" nếu không set env var
+    flavour = ENV["ANDROID_BUILD_FLAVOUR"] || "Prod"
+
+    UI.message "📦 Building #{flavour} #{version_name} (#{version_code})..."
+
+    # WHY gradle task "bundle" (not "assemble"):
+    # - "assemble" → .apk (Play Store rejects these since 2021)
+    # - "bundle"   → .aab (App Bundle — required for Play Store)
+    #
+    # WHY signing via android.injected.signing.* properties:
+    # This is an Android Gradle Plugin mechanism — passes signing credentials
+    # externally WITHOUT hardcoding them in build.gradle.
+    # These are not regular -P project properties — AGP handles them specially.
     gradle(
       task:        "bundle",
+      flavor:      flavour,
       build_type:  "Release",
       project_dir: "android/",
-      # WHY: pass signing qua đây thay vì hardcode trong build.gradle
       properties: {
+        # Signing credentials — injected by AGP, no need to read in build.gradle
         "android.injected.signing.store.file"     => ENV["ANDROID_KEYSTORE_PATH"],
         "android.injected.signing.store.password" => ENV["ANDROID_KEYSTORE_PASSWORD"],
         "android.injected.signing.key.alias"      => ENV["ANDROID_KEYSTORE_ALIAS"],
         "android.injected.signing.key.password"   => ENV["ANDROID_KEY_PASSWORD"],
+        # Version management — read via project.findProperty() in build.gradle
+        "versionCode"                             => version_code,
+        "versionName"                             => version_name,
       },
     )
 
+    # WHY supply uploads to Internal track:
+    # Internal Testing requires no review — publishes within minutes.
+    # skip_upload_apk: true — we upload aab, not apk.
+    # skip_upload_images/screenshots: true — no store listing update needed.
     supply(
+      package_name:            ENV["APP_IDENTIFIER"],
       track:                   "internal",
       aab:                     lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
       json_key:                ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
       skip_upload_apk:         true,
       skip_upload_images:      true,
       skip_upload_screenshots: true,
+      release_status:          "completed",  # use "draft" to avoid auto-publishing to internal testers
     )
 
-    UI.success "✅ Android: Upload thành công! Vào Google Play Console > Internal Testing."
+    UI.success "✅ #{flavour} #{version_name} (#{version_code}) → Play Internal Testing!"
+
+    notify_slack(
+      message: "🤖 Android #{flavour} #{version_name} (#{version_code}) uploaded to Play Internal Testing!",
+      payload: { "Release Notes" => release_notes },
+    )
   end
 
-  desc "Chỉ build AAB, không upload"
+  # ─────────────────────────────────────────────────────────────
+  #  firebase_beta
+  #  Build APK + AAB → upload to Firebase App Distribution
+  #
+  #  YARA pattern: lane này tương đương android/fastlane/Fastfile:beta trong
+  #  sh-yara-connect-mobile — fully dynamic qua ENV['ANDROID_BUILD_FLAVOUR'].
+  #
+  #  Khác biệt so với lane :beta (Google Play):
+  #  - Dùng firebase_app_distribution thay vì supply
+  #  - Không cần Google Play Console / service account
+  #  - versionCode dùng github.run_number (từ CI) — Firebase không yêu cầu incremental
+  #  - Build cả APK (assemble) lẫn AAB (bundle) — Firebase nhận cả 2
+  # ─────────────────────────────────────────────────────────────
+  desc "Build APK + AAB → upload to Firebase App Distribution (non-production environments)"
+  lane :firebase_beta do
+    # YARA pattern: đọc flavor từ env var — CI inject, local dùng default
+    flavour      = ENV["ANDROID_BUILD_FLAVOUR"] || "Antonio"
+    version_code = ENV["APP_VERSION_CODE"]      || Time.now.strftime("%Y%m%d%H")
+    version_name = ENV["APP_VERSION"]           || "1.0.0"
+
+    UI.message "🔥 Building #{flavour} #{version_name} (#{version_code}) for Firebase..."
+
+    gradle(task: "clean", project_dir: "android/")
+
+    gradle(
+      task:        "assemble",
+      flavor:      flavour,
+      build_type:  "Release",
+      project_dir: "android/",
+      properties: {
+        "android.injected.signing.store.file"     => ENV["ANDROID_KEYSTORE_PATH"],
+        "android.injected.signing.store.password" => ENV["ANDROID_KEYSTORE_PASSWORD"],
+        "android.injected.signing.key.alias"      => ENV["ANDROID_KEYSTORE_ALIAS"],
+        "android.injected.signing.key.password"   => ENV["ANDROID_KEY_PASSWORD"],
+        "versionCode"                             => version_code,
+        "versionName"                             => version_name,
+      },
+    )
+
+    gradle(
+      task:        "bundle",
+      flavor:      flavour,
+      build_type:  "Release",
+      project_dir: "android/",
+      properties: {
+        "android.injected.signing.store.file"     => ENV["ANDROID_KEYSTORE_PATH"],
+        "android.injected.signing.store.password" => ENV["ANDROID_KEYSTORE_PASSWORD"],
+        "android.injected.signing.key.alias"      => ENV["ANDROID_KEYSTORE_ALIAS"],
+        "android.injected.signing.key.password"   => ENV["ANDROID_KEY_PASSWORD"],
+        "versionCode"                             => version_code,
+        "versionName"                             => version_name,
+      },
+    )
+
+    firebase_app_distribution(
+      app:                   ENV["FIREBASE_APP_ID"],
+      groups:                ENV["FIREBASE_GROUPS"] || "antonio-testers",
+      # WHY ../node_modules: Fastfile chạy từ thư mục fastlane/
+      # → relative path lên 1 level để tìm node_modules ở root
+      firebase_cli_path:     "../node_modules/.bin/firebase",
+      release_notes:         release_notes,
+      android_artifact_type: "AAB",
+    )
+
+    UI.success "✅ #{flavour} #{version_name} (#{version_code}) → Firebase App Distribution!"
+
+    notify_slack(
+      message: "🔥 Android #{flavour} #{version_name} (#{version_code}) → Firebase App Distribution!",
+      payload: { "Release Notes" => release_notes },
+    )
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  production
+  #  Promote build from Internal Testing → Production (staged rollout)
+  #
+  #  WHY no rebuild:
+  #  The binary QA tested on the internal track is promoted to production.
+  #  Rebuilding = risk of binary change → QA would need to start over.
+  #
+  #  Staged Rollout Strategy:
+  #  - rollout: 0.1 → release to 10% of users
+  #  - Monitor crash rate for 24-48h on Firebase Crashlytics/Sentry
+  #  - Gradually increase: 0.25 → 0.5 → 1.0
+  #  - If issues arise: halt rollout, hotfix, re-release
+  # ─────────────────────────────────────────────────────────────
+  desc "Promote build from Internal Testing to Production with staged rollout"
+  lane :production do
+    rollout      = ENV["ROLLOUT_PERCENTAGE"] || "0.1"
+    version_name = ENV["APP_VERSION"] || "1.0.0"
+
+    # WHY track_promote_to (not re-uploading the AAB):
+    # Takes the latest build from the internal track and promotes it to production.
+    # Does not upload a new binary — this is the exact binary QA tested.
+    supply(
+      package_name:            ENV["APP_IDENTIFIER"],
+      json_key:                ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
+      track:                   "internal",
+      track_promote_to:        "production",
+      rollout:                 rollout,
+      skip_upload_apk:         true,
+      skip_upload_aab:         true,
+      skip_upload_images:      true,
+      skip_upload_screenshots: true,
+    )
+
+    rollout_pct = (rollout.to_f * 100).to_i
+    UI.success "✅ Android #{version_name} → Production (#{rollout_pct}% rollout)!"
+
+    notify_slack(
+      message: "🚀 Android #{version_name} released to Production (#{rollout_pct}% rollout)!",
+    )
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  build_only
+  #  Build AAB only, no upload. Use to verify signing config.
+  # ─────────────────────────────────────────────────────────────
+  desc "Build .aab only (no upload) — verify build + signing config"
   lane :build_only do
     gradle(
       task:        "bundle",
@@ -246,7 +591,37 @@ platform :android do
         "android.injected.signing.key.password"   => ENV["ANDROID_KEY_PASSWORD"],
       },
     )
-    UI.success "✅ Android: Build xong: #{lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]}"
+    UI.success "✅ AAB: #{lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]}"
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  bump_version
+  #  Update versionName in android/app/build.gradle.
+  #  Example: bundle exec fastlane android bump_version version:2.1.0
+  # ─────────────────────────────────────────────────────────────
+  desc "Update versionName in build.gradle. Example: bundle exec fastlane android bump_version version:2.1.0"
+  lane :bump_version do |options|
+    version = options[:version]
+    UI.user_error!("Missing param: version. Example: bundle exec fastlane android bump_version version:2.1.0") unless version
+
+    # WHY regex replace instead of android_set_version_name:
+    # Simpler, no plugin needed, works with any build.gradle format.
+    build_gradle = "../android/app/build.gradle"
+    content = File.read(build_gradle)
+    new_content = content.gsub(/versionName\s+"[^"]+"/, "versionName \"#{version}\"")
+    File.write(build_gradle, new_content)
+    UI.success "✅ Android versionName → #{version}"
+  end
+
+  # ─────────────────────────────────────────────────────────────
+  #  error — Cleanup when a lane fails
+  # ─────────────────────────────────────────────────────────────
+  error do |lane, exception|
+    UI.error "❌ Android lane :#{lane} failed: #{exception.message}"
+    notify_slack(
+      message: "❌ Android lane :#{lane} failed!\n#{exception.message}",
+      success: false,
+    )
   end
 
 end

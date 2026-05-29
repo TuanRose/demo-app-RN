@@ -12,6 +12,7 @@
     "deploy:ios:beta": "bundle exec fastlane ios beta",
     "deploy:ios:build": "bundle exec fastlane ios build_only",
     "deploy:android:beta": "bundle exec fastlane android beta",
+    "deploy:android:firebase": "bundle exec fastlane android firebase_beta",
     "deploy:android:build": "bundle exec fastlane android build_only",
     "deploy:lanes": "bundle exec fastlane lanes"
   },
@@ -56,6 +57,7 @@
     "jest": "^29.6.3",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.3",
+    "firebase-tools": "^14.0.0",
     "typescript": "^5.8.3"
   },
   "engines": {
