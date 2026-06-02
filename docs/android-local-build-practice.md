@@ -145,6 +145,108 @@ Lane `beta` dùng lại giá trị này để upload: `supply(aab: lane_context[
 
 ---
 
+### 6. Fix `npm run android` với productFlavors
+
+**Vấn đề**: Sau khi thêm `productFlavors`, `npm run android` báo lỗi:
+```
+Cannot locate tasks that match 'app:installDebug' as task 'installDebug' is ambiguous.
+Candidates are: 'installAntonioDebug', 'installDevDebug', 'installProdDebug'
+```
+
+**Nguyên nhân**: Khi có `flavorDimensions`, Gradle không còn task `installDebug` generic — cần chỉ định flavor cụ thể.
+
+**Quá trình tìm đúng flag** (để học — đừng đoán mò):
+```bash
+npx react-native run-android --help  # luôn check help trước
+# → flag đúng là --mode, không phải --flavor hay --variant
+```
+
+**Fix trong `package.json`:**
+```json
+"android": "react-native run-android --mode prodDebug",
+"android:dev": "react-native run-android --mode devDebug",
+"android:antonio": "react-native run-android --mode antonioDebug"
+```
+
+`--mode prodDebug` = flavor `Prod` + build type `Debug` → Gradle task `installProdDebug`.
+
+---
+
+### 7. Metro platform-specific file resolution
+
+**Cơ chế**: Metro bundle target được xác định tại build time, không phải runtime.
+
+```
+import App from './App'
+        │
+        ▼
+Metro thử theo thứ tự (platform = android):
+1. App.android.tsx   ← tồn tại → DỪNG, dùng cái này
+2. App.native.tsx    ← không tồn tại
+3. App.tsx           ← fallback
+```
+
+**Tại sao cần `App.android.tsx`** trong project này:
+- `App.tsx` import `TurboModuleScreen` → `useBatteryLevelTurbo` → `TurboModuleRegistry.getEnforcing('NativeDeviceBattery')`
+- `getEnforcing` throw **synchronously** nếu module không tồn tại → Android crash ngay khi launch
+- Solution: `App.android.tsx` là entry point an toàn, không chứa iOS-only native module
+
+**Khi nào tách trong dự án thực tế:**
+```
+Native module chỉ có trên 1 platform
+        │
+        ├── Logic khác nhau         → tách Hook (.ios.ts / .android.ts)
+        ├── UI + Logic khác nhau    → tách Component (.ios.tsx / .android.tsx)
+        ├── Toàn bộ Screen khác nhau → tách Screen
+        └── App structure khác nhau → tách App (rất hiếm)
+```
+
+**Trade-off**:
+- ✅ Zero runtime cost — quyết định tại bundle time
+- ✅ Tree shaking sạch — iOS bundle không chứa code Android
+- ❌ Dễ out-of-sync nếu không maintain cả 2 file song song
+
+---
+
+### 8. Android App Icon setup
+
+**Cấu trúc mipmap — tương tự iOS @1x/@2x/@3x:**
+
+| Folder | Size | Density |
+|---|---|---|
+| mipmap-mdpi | 48×48 | 160dpi |
+| mipmap-hdpi | 72×72 | 240dpi |
+| mipmap-xhdpi | 96×96 | 320dpi |
+| mipmap-xxhdpi | 144×144 | 480dpi |
+| mipmap-xxxhdpi | 192×192 | 640dpi |
+
+**Tool generate icons nhanh nhất**: [appicon.co](https://appicon.co)
+- Upload 1 ảnh gốc 1024×1024
+- Tick "Android" → download zip
+- Copy toàn bộ `mipmap-*` vào `android/app/src/main/res/`
+- Copy `values/ic_launcher_background.xml` vào `android/app/src/main/res/values/`
+- `playstore-icon.png` KHÔNG đặt trong `res/` — để riêng ngoài (dùng khi upload Play Store)
+
+**`mipmap-anydpi-v26/`** = adaptive icon cho Android 8.0+ (Pixel, Samsung hiện đại).
+Nếu chỉ có legacy PNG thì icon không được mask đẹp theo launcher theme.
+
+**Pitfall — source ảnh có padding**:
+Nếu dùng bootsplash logo làm icon → logo có padding built-in (thiết kế cho splash screen)
+→ icon app trông nhỏ với border trắng xung quanh.
+→ Dùng `ItunesArtwork@2x.png` (1024×1024) hoặc ảnh gốc không có padding.
+
+**Pitfall — iOS icon có alpha**:
+Nếu source PNG có alpha (transparent background), cần composite lên nền trắng trước khi save:
+```python
+from PIL import Image
+src = Image.open("ItunesArtwork@2x.png").convert("RGBA")
+bg = Image.new("RGBA", src.size, (255, 255, 255, 255))
+bg.paste(src, mask=src.split()[3])
+bg.convert("RGB").save("ic_launcher.png")
+```
+
+---
+
 ## Checklist đã hoàn thành (local)
 
 - [x] Tạo `release.keystore` + thêm vào `.gitignore`
@@ -152,6 +254,9 @@ Lane `beta` dùng lại giá trị này để upload: `supply(aab: lane_context[
 - [x] Fix `build_only` lane — thêm `flavor` param
 - [x] Fix `android/build.gradle` — khai báo local Maven repo cho async-storage
 - [x] Build thành công Prod / Dev / Antonio flavor
+- [x] Fix `npm run android` — dùng `--mode prodDebug`
+- [x] Tạo `App.android.tsx` — tránh crash do iOS-only native modules
+- [x] Cập nhật Android app icon từ nguồn gốc
 
 ## Checklist còn lại (cần Play Console account)
 

@@ -208,12 +208,25 @@ Fastlane cần service account để gọi Google Play API.
 3. **IAM & Admin → Service Accounts → Create Service Account**
    - Name: `fastlane-ci`
    - Description: `Fastlane CI/CD access to Google Play`
-4. **Create key → JSON** → download file `fastlane-ci.json`
+   - Bỏ qua phần "Grant this service account access to project" — không cần thiết
+4. Tab **Keys → Add key → Create new key → JSON** → download `fastlane-ci.json`
 
 **Bước B — Google Play Console:**
-1. Vào **Setup → API access**
+1. Vào **Setup (Cài đặt) → API access (Truy cập API)** ← ở account level, không phải app level
 2. Tìm service account vừa tạo → **Grant access**
 3. Permission: `Release manager` (tối thiểu cần để upload build)
+
+> **⚠️ "Truy cập API" không hiển thị?**
+> Xảy ra khi account chưa hoàn thành **Android Developer Verification**.
+> Sidebar Play Console sẽ có mục "Xác minh nhà phát triển Android" chưa tick.
+> Fix: hoàn thành verification → "Truy cập API" xuất hiện.
+>
+> **Workaround khi bị blocked:** Nếu service account được tạo trong Cloud project đã link
+> với Play Console, nó vẫn có thể connect. Test bằng:
+> ```bash
+> bundle exec fastlane run validate_play_store_json_key json_key:fastlane-ci.json
+> # Output: Successfully established connection to Google Play Store. ✅
+> ```
 
 **Bước C — Encode JSON key:**
 ```bash
@@ -492,6 +505,10 @@ PM/TL → GitHub Actions → "Run workflow" → production.yml
 | `Keystore was tampered with, or password was incorrect` | Base64 decode bị lỗi | Re-encode: `base64 -i release.keystore` (không dùng `-w 0` trên macOS) |
 | `No matching client found for package name` | `google-services.json` thiếu package | Chưa cần thiết nếu không dùng Firebase SDK |
 | `Task 'bundleProdRelease' not found` | `flavorDimensions` thiếu | Gradle sync lại sau khi sửa `build.gradle` |
+| `"Truy cập API" không hiển thị trong Play Console` | Account chưa verify danh tính | Hoàn thành "Xác minh nhà phát triển Android" trong sidebar |
+| `npm ci: package.json and package-lock.json out of sync` | `package.json` đã sửa nhưng chưa chạy `npm install` | Chạy `npm install` local → commit `package-lock.json` |
+| `installDebug is ambiguous` khi `npm run android` | `flavorDimensions` làm mất task generic | Dùng `react-native run-android --mode prodDebug` |
+| `ANDROID_APP_IDENTIFIER` vs `APP_IDENTIFIER` | iOS dùng `APP_IDENTIFIER`, Android dùng `ANDROID_APP_IDENTIFIER` | Khai báo 2 secret riêng: `APP_IDENTIFIER=com.tuanvu.demoapp`, `ANDROID_APP_IDENTIFIER=antonio.dev.demo_app` |
 
 ---
 
