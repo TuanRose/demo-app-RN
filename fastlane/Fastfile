@@ -458,10 +458,10 @@ platform :android do
 
     UI.success "✅ #{flavour} #{version_name} (#{version_code}) → Play Internal Testing!"
 
-    notify_slack(
-      message: "🤖 Android #{flavour} #{version_name} (#{version_code}) uploaded to Play Internal Testing!",
-      payload: { "Release Notes" => release_notes },
-    )
+    # notify_slack(
+    #   message: "🤖 Android #{flavour} #{version_name} (#{version_code}) uploaded to Play Internal Testing!",
+    #   payload: { "Release Notes" => release_notes },
+    # )
   end
 
   # ─────────────────────────────────────────────────────────────
