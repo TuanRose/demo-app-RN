@@ -143,8 +143,6 @@ jobs:
           # YARA pattern: inject environment qua env var → Fastfile đọc ANDROID_BUILD_FLAVOUR
           # "Prod" → gradle builds ProdRelease → applicationId = com.demo_app (no suffix)
           ANDROID_BUILD_FLAVOUR:     Prod
-          # Notifications
-          SLACK_WEBHOOK_URL:         ${{ secrets.SLACK_WEBHOOK_URL }}
         run: bundle exec fastlane android beta
 
       # ─── Upload AAB artifact ───────────────────────────────

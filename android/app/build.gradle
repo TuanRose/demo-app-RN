@@ -18,7 +18,7 @@ android {
     namespace "com.demo_app"
 
     defaultConfig {
-        applicationId "antonio.dev.demo_app"
+        applicationId "corleone.dev.demo_app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
@@ -78,13 +78,13 @@ android {
     flavorDimensions "environment"
 
     productFlavors {
-        // Prod: applicationId = "antonio.dev.demo_app" (không suffix)
+        // Prod: applicationId = "corleone.dev.demo_app" (không suffix)
         // → đây là app trên Google Play Store
         Prod {
             dimension "environment"
         }
 
-        // Dev: applicationId = "antonio.dev.demo_app.dev"
+        // Dev: applicationId = "corleone.dev.demo_app.dev"
         // → cài song song với Prod trên device
         Dev {
             dimension "environment"
@@ -92,7 +92,7 @@ android {
             resValue "string", "app_name", "DemoApp Dev"
         }
 
-        // Antonio: applicationId = "antonio.dev.demo_app.antonio"
+        // Antonio: applicationId = "corleone.dev.demo_app.antonio"
         // → Firebase App Distribution (không lên Play Store)
         Antonio {
             dimension "environment"

@@ -44,16 +44,7 @@ end
 #  Shared helper — Slack notify (only runs when webhook is set)
 # ────────────────────────────────────────────────────────────────
 def notify_slack(message:, success: true, payload: {})
-  return unless ENV["SLACK_WEBHOOK_URL"]
-  slack(
-    message:     message,
-    webhook_url: ENV["SLACK_WEBHOOK_URL"],
-    success:     success,
-    payload:     payload.merge(
-      "Branch" => (ENV["GITHUB_REF_NAME"] || `git rev-parse --abbrev-ref HEAD`.strip),
-      "Commit" => `git log -1 --format="%s"`.strip,
-    ),
-  )
+  # Slack removed — no webhook configured
 end
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -453,7 +444,7 @@ platform :android do
       skip_upload_apk:         true,
       skip_upload_images:      true,
       skip_upload_screenshots: true,
-      release_status:          "completed",  # use "draft" to avoid auto-publishing to internal testers
+      release_status:          "completed",
     )
 
     UI.success "✅ #{flavour} #{version_name} (#{version_code}) → Play Internal Testing!"
