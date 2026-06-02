@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "android": "react-native run-android",
+    "android": "react-native run-android --mode prodDebug",
+    "android:dev": "react-native run-android --mode devDebug",
+    "android:antonio": "react-native run-android --mode antonioDebug",
     "ios": "react-native run-ios",
     "ios:sim": "react-native run-ios --simulator \"iPhone 17 Pro Max\"",
     "lint": "eslint .",

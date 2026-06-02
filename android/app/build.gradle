@@ -18,7 +18,7 @@ android {
     namespace "com.demo_app"
 
     defaultConfig {
-        applicationId "com.demo_app"
+        applicationId "antonio.dev.demo_app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
@@ -78,25 +78,22 @@ android {
     flavorDimensions "environment"
 
     productFlavors {
-        // Prod: applicationId = "com.demo_app" (không suffix)
+        // Prod: applicationId = "antonio.dev.demo_app" (không suffix)
         // → đây là app trên Google Play Store
-        // → tương đương YARA: com.yara.connect.prod trên Play Store
         Prod {
             dimension "environment"
         }
 
-        // Dev: applicationId = "com.demo_app.dev"
+        // Dev: applicationId = "antonio.dev.demo_app.dev"
         // → cài song song với Prod trên device
-        // → dùng cho local development / debug
         Dev {
             dimension "environment"
             applicationIdSuffix ".dev"
             resValue "string", "app_name", "DemoApp Dev"
         }
 
-        // Antonio: applicationId = "com.demo_app.antonio"
+        // Antonio: applicationId = "antonio.dev.demo_app.antonio"
         // → Firebase App Distribution (không lên Play Store)
-        // → tương đương YARA: com.yara.connect.qa trên Firebase
         Antonio {
             dimension "environment"
             applicationIdSuffix ".antonio"

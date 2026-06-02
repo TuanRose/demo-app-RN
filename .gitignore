@@ -77,3 +77,8 @@ fastlane/.env
 
 # Claude Code — user-local settings (contains machine-specific paths)
 .claude/settings.local.json
+
+# Android signing — NEVER commit keystores or service account keys
+android/app/release.keystore
+fastlane-ci.json
+/tmp/play-key.json

@@ -3,7 +3,112 @@
 > **Mục tiêu:** Deploy `demo_app_bk` lên Google Play Internal Testing lần đầu tiên,
 > theo đúng YARA pattern: productFlavors + dynamic Fastfile + GitHub Actions.
 >
-> **Thời gian ước tính:** 2-3 giờ (bao gồm setup Google Play Console + service account)
+> **Thời gian ước tính:** 3-4 giờ (bao gồm đăng ký Google Play Developer + service account)
+
+---
+
+## Phase 0 — Tạo Google Play Developer Account (One-time, ~30 phút)
+
+> **Điều kiện:** Cần thẻ Visa/Mastercard để trả phí $25 USD một lần duy nhất.
+> Phí này là vĩnh viễn — không phí hàng năm.
+
+### 0.1 Tạo Google Account dành riêng cho developer
+
+> **Tại sao tạo account riêng?**
+> Account Google personal thường có lịch sử nhiều service khác nhau.
+> Dùng account riêng cho developer giúp tách biệt billing, dễ chuyển giao cho team.
+
+1. Vào [accounts.google.com/signup](https://accounts.google.com/signup)
+2. Điền thông tin:
+   - First name: `Demo`
+   - Last name: `App`
+   - Username: chọn dạng `yourname.dev` hoặc `yourcompany.android`
+   - Password: dùng password manager, lưu lại
+3. Thêm recovery email = personal email của bạn (phòng khi mất access)
+4. **Bật 2-Factor Authentication ngay** — Google Play Console yêu cầu
+
+> **Nếu đã có Google account muốn dùng luôn:** Bỏ qua bước này, dùng account đó đăng nhập Play Console.
+
+---
+
+### 0.2 Đăng ký Google Play Developer
+
+1. Vào [play.google.com/console/signup](https://play.google.com/console/signup)
+2. Đăng nhập bằng Google account vừa tạo
+3. Chọn loại account:
+
+   | Loại | Khi nào chọn |
+   |------|-------------|
+   | **Personal** | App cá nhân, không có tên công ty |
+   | **Organization** | Publish dưới tên công ty / startup |
+
+   → Chọn **Personal** nếu đây là project cá nhân/học tập.
+
+4. Điền **Developer name** — đây là tên hiển thị công khai trên Play Store:
+   - Ví dụ: `Antonio Vu` hoặc `DemoApp Studio`
+   - **Không thể đổi dễ dàng sau khi tạo** — chọn kỹ
+
+5. Điền contact email (dùng email đang đăng nhập)
+
+6. Đồng ý **Developer Distribution Agreement** (đọc lướt phần chính)
+
+7. Nhấn **Continue to payment**
+
+---
+
+### 0.3 Thanh toán phí $25 USD
+
+1. Nhập thông tin thẻ (Visa/Mastercard)
+2. Billing address: điền địa chỉ thật (Google verify)
+   ```
+   Country:  Vietnam
+   Address:  [địa chỉ của bạn]
+   City:     Ho Chi Minh City
+   ZIP:      700000
+   ```
+3. Nhấn **Buy** — bị charge $25 ngay lập tức
+
+> **Lưu ý:** Một số ngân hàng Việt Nam block giao dịch nước ngoài.
+> Nếu bị từ chối: gọi ngân hàng mở "thanh toán quốc tế", hoặc dùng thẻ Visa debit Techcombank/VCB.
+
+---
+
+### 0.4 Hoàn tất setup Play Console
+
+Sau thanh toán, Google sẽ redirect về Play Console. Làm theo các bước onboarding:
+
+**Bước A — Verify thông tin account:**
+1. Điền số điện thoại để verify (OTP)
+2. Chờ email xác nhận từ Google (thường < 5 phút)
+
+**Bước B — Setup Developer Profile:**
+1. Vào **Settings → Developer account → Developer page**
+2. Điền:
+   - Developer name: như đã nhập
+   - Website: `https://github.com/yourusername` (có thể dùng GitHub)
+   - Email address: email liên hệ cho user (public)
+
+**Bước C — Verify danh tính (Identity verification):**
+
+> Google bắt đầu yêu cầu verify danh tính từ 2023 cho tất cả new accounts.
+
+1. **Settings → Developer account → Identity verification**
+2. Upload CMND/CCCD hoặc Passport (2 mặt)
+3. Chờ Google review: **1-3 ngày làm việc**
+
+> **Trong thời gian chờ verify**, bạn vẫn có thể tạo app và upload build nội bộ.
+> Nhưng **không thể publish ra public** cho đến khi verify xong.
+
+---
+
+### 0.5 Kiểm tra account sẵn sàng
+
+Khi vào [play.google.com/console](https://play.google.com/console), bạn thấy:
+- Dashboard trống "You don't have any apps yet"
+- Không có banner lỗi màu đỏ về account status
+- Menu bên trái có đủ: **All apps, Setup, Users and permissions**
+
+✅ Account sẵn sàng → tiếp tục Phase 1.
 
 ---
 

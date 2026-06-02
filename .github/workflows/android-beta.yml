@@ -22,6 +22,7 @@ on:
   push:
     branches:
       - main
+      - feat/demo_deploy_Android
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -137,7 +138,7 @@ jobs:
           ANDROID_KEY_PASSWORD:      ${{ secrets.ANDROID_KEY_PASSWORD }}
           # Google Play
           GOOGLE_PLAY_JSON_KEY_PATH: ${{ env.GOOGLE_PLAY_JSON_KEY_PATH }}
-          APP_IDENTIFIER:            ${{ secrets.APP_IDENTIFIER }}
+          ANDROID_APP_IDENTIFIER:    ${{ secrets.ANDROID_APP_IDENTIFIER }}
           APP_VERSION:               ${{ secrets.APP_VERSION }}
           # YARA pattern: inject environment qua env var → Fastfile đọc ANDROID_BUILD_FLAVOUR
           # "Prod" → gradle builds ProdRelease → applicationId = com.demo_app (no suffix)
@@ -152,7 +153,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: demo_app-prod-${{ github.sha }}.aab
-          path: android/app/build/outputs/bundle/prodRelease/app-prod-release.aab
+          path: android/app/build/outputs/bundle/ProdRelease/app-Prod-release.aab
           retention-days: 7
 
       # ─── Cleanup secrets ───────────────────────────────────

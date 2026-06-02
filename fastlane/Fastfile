@@ -394,9 +394,13 @@ platform :android do
     # Same reason as iOS: CI runners are ephemeral, can't persist state.
     # versionCode in build.gradle is always stale → query real-time.
     # rescue: first time ever (internal track has no builds yet) → default to 0.
+    # WHY ANDROID_APP_IDENTIFIER: iOS uses APP_IDENTIFIER (com.tuanvu.demoapp),
+    # Android package name is different — must not share the same env var.
+    package_name = ENV["ANDROID_APP_IDENTIFIER"] || ENV["APP_IDENTIFIER"]
+
     current_version_code = begin
       google_play_track_version_codes(
-        package_name: ENV["APP_IDENTIFIER"],
+        package_name: package_name,
         track:        "internal",
         json_key:     ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
       ).max
@@ -442,7 +446,7 @@ platform :android do
     # skip_upload_apk: true — we upload aab, not apk.
     # skip_upload_images/screenshots: true — no store listing update needed.
     supply(
-      package_name:            ENV["APP_IDENTIFIER"],
+      package_name:            package_name,
       track:                   "internal",
       aab:                     lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
       json_key:                ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
@@ -555,7 +559,7 @@ platform :android do
     # Takes the latest build from the internal track and promotes it to production.
     # Does not upload a new binary — this is the exact binary QA tested.
     supply(
-      package_name:            ENV["APP_IDENTIFIER"],
+      package_name:            ENV["ANDROID_APP_IDENTIFIER"] || ENV["APP_IDENTIFIER"],
       json_key:                ENV["GOOGLE_PLAY_JSON_KEY_PATH"],
       track:                   "internal",
       track_promote_to:        "production",
@@ -580,8 +584,12 @@ platform :android do
   # ─────────────────────────────────────────────────────────────
   desc "Build .aab only (no upload) — verify build + signing config"
   lane :build_only do
+    # WHY flavor required: flavorDimensions defined → task "bundleRelease" does not exist.
+    # Gradle expects "bundleProdRelease" — must pass flavor explicitly.
+    flavour = ENV["ANDROID_BUILD_FLAVOUR"] || "Prod"
     gradle(
       task:        "bundle",
+      flavor:      flavour,
       build_type:  "Release",
       project_dir: "android/",
       properties: {

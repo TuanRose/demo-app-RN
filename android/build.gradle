@@ -19,3 +19,14 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// WHY: @react-native-async-storage/async-storage ships storage-android:1.0.0
+// as a local Maven repo inside node_modules. Gradle can't find it via
+// mavenCentral/google — must declare the local_repo path explicitly.
+allprojects {
+    repositories {
+        maven {
+            url("${rootDir}/../node_modules/@react-native-async-storage/async-storage/android/local_repo")
+        }
+    }
+}

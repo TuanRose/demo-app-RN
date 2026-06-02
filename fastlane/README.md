@@ -21,7 +21,7 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 [bundle exec] fastlane ios sync_certs
 ```
 
-Sync cert + profile từ match repo (chạy 1 lần khi setup máy mới hoặc cert hết hạn)
+Sync all certs + profiles from the match repo. Run once when setting up a new machine or when a cert expires.
 
 ### ios beta
 
@@ -29,23 +29,23 @@ Sync cert + profile từ match repo (chạy 1 lần khi setup máy mới hoặc 
 [bundle exec] fastlane ios beta
 ```
 
-Build và upload lên TestFlight
+Build .ipa and upload to TestFlight (internal testing)
 
-### ios refresh_profile
-
-```sh
-[bundle exec] fastlane ios refresh_profile
-```
-
-Refresh provisioning profile khi có device mới được add vào Apple Portal
-
-### ios register_new_device
+### ios production
 
 ```sh
-[bundle exec] fastlane ios register_new_device
+[bundle exec] fastlane ios production
 ```
 
-Đăng ký device mới lên Apple Portal rồi refresh development profile
+Submit build to App Store for review. Run after QA has approved the build on TestFlight.
+
+### ios adhoc
+
+```sh
+[bundle exec] fastlane ios adhoc
+```
+
+Build .ipa for ad-hoc distribution via Diawi or Firebase Distribution
 
 ### ios build_only
 
@@ -53,15 +53,31 @@ Refresh provisioning profile khi có device mới được add vào Apple Portal
 [bundle exec] fastlane ios build_only
 ```
 
-Chỉ build .ipa, không upload
+Build .ipa only (no upload) — verify build config
 
-### ios build_adhoc
+### ios bump_version
 
 ```sh
-[bundle exec] fastlane ios build_adhoc
+[bundle exec] fastlane ios bump_version
 ```
 
-Build .ipa adhoc để distribute qua Diawi/link trực tiếp
+Increment version number. Param: type (major|minor|patch). Example: bundle exec fastlane ios bump_version type:minor
+
+### ios refresh_profile
+
+```sh
+[bundle exec] fastlane ios refresh_profile
+```
+
+Refresh provisioning profile after adding a new device. Does not revoke the cert.
+
+### ios register_new_device
+
+```sh
+[bundle exec] fastlane ios register_new_device
+```
+
+Register a new device in Apple Portal then refresh the development profile
 
 ----
 
@@ -74,7 +90,23 @@ Build .ipa adhoc để distribute qua Diawi/link trực tiếp
 [bundle exec] fastlane android beta
 ```
 
-Build AAB và upload lên Google Play Internal Testing
+Build .aab and upload to Google Play Internal Testing
+
+### android firebase_beta
+
+```sh
+[bundle exec] fastlane android firebase_beta
+```
+
+Build APK + AAB → upload to Firebase App Distribution (non-production environments)
+
+### android production
+
+```sh
+[bundle exec] fastlane android production
+```
+
+Promote build from Internal Testing to Production with staged rollout
 
 ### android build_only
 
@@ -82,7 +114,15 @@ Build AAB và upload lên Google Play Internal Testing
 [bundle exec] fastlane android build_only
 ```
 
-Chỉ build AAB, không upload
+Build .aab only (no upload) — verify build + signing config
+
+### android bump_version
+
+```sh
+[bundle exec] fastlane android bump_version
+```
+
+Update versionName in build.gradle. Example: bundle exec fastlane android bump_version version:2.1.0
 
 ----
 
