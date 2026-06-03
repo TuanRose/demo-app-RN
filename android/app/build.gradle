@@ -8,6 +8,16 @@ react {
 
 def enableProguardInReleaseBuilds = false
 
+// WHY: react-native-config đọc ENVFILE để biết load file nào.
+// Map flavor name → env file; nếu không match thì fallback về .env (Prod).
+project.ext.envConfigFiles = [
+    Prod:    ".env",
+    Dev:     ".env",
+    Antonio: ".env",
+    Qa:      ".env.qa",
+]
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
