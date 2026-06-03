@@ -355,6 +355,20 @@ git push -u origin antonio
 | `Invalid Firebase token` | FIREBASE_TOKEN sai hoặc expired | Chạy lại `firebase login:ci` → update secret |
 | `App not found` | FIREBASE_APP_ID sai | Kiểm tra Project Settings → Your apps → App ID |
 | `Could not find task ':app:assembleAntonioRelease'` | Flavor chưa được khai báo trong build.gradle | Kiểm tra `productFlavors { Antonio { ... } }` |
+| `This project is not linked to a Google Play account` | `android_artifact_type: "AAB"` yêu cầu Firebase link với Google Play để process splits | Dùng `android_artifact_type: "APK"` — APK install trực tiếp, không cần Google Play integration |
+| `Using deprecated option: '--firebase_cli_path'` | Plugin v1.x không còn dùng Firebase CLI nữa | Xóa `firebase_cli_path` khỏi Fastfile — `firebase_cli_token` vẫn hoạt động |
+
+### AAB vs APK trong Firebase App Distribution
+
+| | APK | AAB |
+|--|-----|-----|
+| Yêu cầu Google Play link | ❌ Không cần | ✅ Bắt buộc |
+| File size | Lớn hơn | Nhỏ hơn (Google Play optimize) |
+| Dùng khi | Internal testing, Firebase distribution | Play Store production |
+| YARA dùng | — | ✅ (vì Firebase project đã link với Google Play) |
+| demo_app_bk dùng | ✅ | — (Firebase project chưa link Google Play) |
+
+**Muốn dùng AAB với Firebase Distribution**: Firebase Console → Project Settings → Integrations → Google Play → Link. Requires Google Play app với cùng package name.
 
 ---
 
@@ -383,6 +397,6 @@ git push -u origin antonio
 - [x] Firebase Console — enable App Distribution, tạo group `antonio-testers`
 - [x] `FIREBASE_TOKEN` — lấy qua `firebase login:ci`
 - [x] GitHub Secrets — thêm 6 secrets `ANDROID_ANTONIO_*` + `FIREBASE_TOKEN`
-- [ ] Push branch `antonio` → verify pipeline green
-- [ ] Firebase Console — xác nhận build xuất hiện trong App Distribution
-- [ ] Tester nhận email thông báo có build mới
+- [x] Push branch `antonio` → verify pipeline green
+- [x] Firebase Console — xác nhận build xuất hiện trong App Distribution
+- [x] Tester nhận email thông báo có build mới (email từ firebase-noreply@google.com)
