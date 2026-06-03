@@ -6,7 +6,9 @@ react {
     autolinkLibrariesWithApp()
 }
 
-def enableProguardInReleaseBuilds = false
+// WHY true thay vì false: R8 shrink + obfuscate bytecode → APK nhỏ hơn, reverse engineer khó hơn.
+// mapping.txt được generate mỗi build release → dùng để de-obfuscate crash stack trace trên Firebase Crashlytics.
+def enableProguardInReleaseBuilds = true
 
 // WHY: react-native-config đọc ENVFILE để biết load file nào.
 // Map flavor name → env file; nếu không match thì fallback về .env (Prod).
