@@ -99,6 +99,15 @@ android {
             applicationIdSuffix ".antonio"
             resValue "string", "app_name", "DemoApp Antonio"
         }
+
+        // Qa: applicationId = "corleone.dev.demo_app.qa"
+        // → cài song song với Prod/Dev/Antonio trên cùng device
+        // → Firebase App Distribution, trỏ QA backend
+        Qa {
+            dimension "environment"
+            applicationIdSuffix ".qa"
+            resValue "string", "app_name", "DemoApp QA"
+        }
     }
 }
 
