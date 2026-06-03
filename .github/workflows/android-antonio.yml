@@ -120,9 +120,12 @@ jobs:
           ANDROID_KEYSTORE_ALIAS:    ${{ secrets.ANDROID_ANTONIO_KEYSTORE_ALIAS }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_ANTONIO_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD:      ${{ secrets.ANDROID_ANTONIO_KEY_PASSWORD }}
-          # Firebase — App ID của com.demo_app.antonio
+          # Firebase — App ID của corleone.dev.demo_app.antonio
           FIREBASE_APP_ID:           ${{ secrets.ANDROID_ANTONIO_FIREBASE_APP_ID }}
           FIREBASE_GROUPS:           antonio-testers
+          # WHY FIREBASE_TOKEN: CI runner không có browser → không thể firebase login.
+          # Generate once: ./node_modules/.bin/firebase login:ci
+          FIREBASE_TOKEN:            ${{ secrets.FIREBASE_TOKEN }}
           # YARA pattern: environment được inject qua env var
           ANDROID_BUILD_FLAVOUR:     Antonio
           APP_VERSION:               ${{ secrets.APP_VERSION }}
@@ -131,8 +134,6 @@ jobs:
           # github.run_number tăng đơn điệu mỗi lần CI chạy → đủ để distinguish builds.
           # YARA dùng github.run_number + 44070 (offset migration từ CI cũ).
           APP_VERSION_CODE:          ${{ github.run_number }}
-          # Notifications
-          SLACK_WEBHOOK_URL:         ${{ secrets.SLACK_WEBHOOK_URL }}
         run: bundle exec fastlane android firebase_beta
 
       # ─── Upload artifacts ──────────────────────────────────

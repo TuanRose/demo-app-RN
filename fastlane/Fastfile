@@ -512,6 +512,9 @@ platform :android do
     firebase_app_distribution(
       app:                   ENV["FIREBASE_APP_ID"],
       groups:                ENV["FIREBASE_GROUPS"] || "antonio-testers",
+      # WHY firebase_cli_token: CI runner không có browser → không thể `firebase login`.
+      # `firebase login:ci` tạo 1 token offline dùng được trên CI.
+      firebase_cli_token:    ENV["FIREBASE_TOKEN"],
       # WHY ../node_modules: Fastfile chạy từ thư mục fastlane/
       # → relative path lên 1 level để tìm node_modules ở root
       firebase_cli_path:     "../node_modules/.bin/firebase",

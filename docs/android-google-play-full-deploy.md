@@ -244,18 +244,16 @@ base64 -i fastlane-ci.json | pbcopy
 
 Google yêu cầu build đầu tiên phải upload qua web UI.
 
-**Build local:**
+**Build local (khi đã có productFlavors):**
 ```bash
-cd android
-
-./gradlew bundleRelease \
-  -Pandroid.injected.signing.store.file=app/release.keystore \
-  -Pandroid.injected.signing.store.password=YOUR_STORE_PASSWORD \
-  -Pandroid.injected.signing.key.alias=demo-app-key \
-  -Pandroid.injected.signing.key.password=YOUR_KEY_PASSWORD
+# Dùng Fastlane build_only — đọc credentials từ fastlane/.env
+bundle exec fastlane android build_only
 ```
 
-Output: `android/app/build/outputs/bundle/release/app-release.aab`
+Output: `android/app/build/outputs/bundle/ProdRelease/app-Prod-release.aab`
+
+> **Lưu ý:** Nếu chưa có productFlavors, task là `bundleRelease`.
+> Sau khi thêm `flavorDimensions`, task đổi thành `bundleProdRelease` — Fastlane xử lý tự động qua `flavor: "Prod"`.
 
 **Upload lên Google Play Console:**
 1. **Internal testing → Create new release**
@@ -508,19 +506,23 @@ PM/TL → GitHub Actions → "Run workflow" → production.yml
 | `"Truy cập API" không hiển thị trong Play Console` | Account chưa verify danh tính | Hoàn thành "Xác minh nhà phát triển Android" trong sidebar |
 | `npm ci: package.json and package-lock.json out of sync` | `package.json` đã sửa nhưng chưa chạy `npm install` | Chạy `npm install` local → commit `package-lock.json` |
 | `installDebug is ambiguous` khi `npm run android` | `flavorDimensions` làm mất task generic | Dùng `react-native run-android --mode prodDebug` |
-| `ANDROID_APP_IDENTIFIER` vs `APP_IDENTIFIER` | iOS dùng `APP_IDENTIFIER`, Android dùng `ANDROID_APP_IDENTIFIER` | Khai báo 2 secret riêng: `APP_IDENTIFIER=com.tuanvu.demoapp`, `ANDROID_APP_IDENTIFIER=antonio.dev.demo_app` |
+| `ANDROID_APP_IDENTIFIER` vs `APP_IDENTIFIER` | iOS dùng `APP_IDENTIFIER`, Android dùng `ANDROID_APP_IDENTIFIER` | Khai báo 2 secret riêng trong GitHub Secrets |
+| `supply`: "The caller does not have permission" | Service account chưa được grant "Release Manager" trong Play Console | Play Console → Cài đặt → Truy cập API → service account → Grant access → Release Manager |
+| `validate_play_store_json_key` pass nhưng `supply` fail | 2 hệ thống permission độc lập: Cloud IAM ≠ Play Console | Cloud IAM Owner không có giá trị với Play Store upload. Phải grant trong Play Console riêng |
+| "Mã phiên bản X đã được sử dụng" khi upload thủ công | versionCode đã tồn tại trong Play Console | Build lại với `-PversionCode=X+1`, hoặc để CI tự query và increment |
+| `slack` action crash: "Could not find option 'webhook_url'" | Fastlane `slack` action dùng `slack_url`, không phải `webhook_url` | Đổi param thành `slack_url:` hoặc disable Slack nếu chưa cần |
 
 ---
 
 ## Checklist
 
-- [ ] Tạo `release.keystore` + backup an toàn
-- [ ] Tạo app trên Google Play Console
-- [ ] Tạo service account + download JSON key
-- [ ] Upload AAB lần đầu thủ công lên Internal Testing
-- [ ] Sửa `android/app/build.gradle` — thêm `Prod` + `Dev` flavor
-- [ ] Sửa `fastlane/Fastfile` — thêm `flavor: flavour` vào `android:beta`
-- [ ] Sửa `.github/workflows/android-beta.yml` — decode JSON key + inject `ANDROID_BUILD_FLAVOUR=Prod`
-- [ ] Thêm 8 GitHub Secrets
-- [ ] Push lên `main` → verify CI xanh
-- [ ] Google Play Console → Internal Testing → build mới xuất hiện
+- [x] Tạo `release.keystore` + backup an toàn
+- [x] Tạo app trên Google Play Console
+- [x] Tạo service account + download JSON key
+- [x] Upload AAB lần đầu thủ công lên Internal Testing (versionCode=1)
+- [x] Sửa `android/app/build.gradle` — thêm `Prod` + `Dev` + `Antonio` flavor
+- [x] Sửa `fastlane/Fastfile` — `flavor: flavour` + `ANDROID_APP_IDENTIFIER`
+- [x] Sửa `.github/workflows/android-beta.yml` — decode JSON key + inject `ANDROID_BUILD_FLAVOUR=Prod`
+- [x] Thêm GitHub Secrets (KEYSTORE, GOOGLE_PLAY_JSON_KEY, ANDROID_APP_IDENTIFIER, APP_VERSION)
+- [x] Push → CI xanh — build + upload thành công (versionCode=2, ~21 phút)
+- [x] Google Play Console → Internal Testing → build xuất hiện

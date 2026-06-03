@@ -17,3 +17,4 @@ gem 'mutex_m'
 gem 'nkf'
 
 gem 'fastlane'
+gem 'fastlane-plugin-firebase_app_distribution'

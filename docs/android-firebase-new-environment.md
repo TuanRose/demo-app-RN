@@ -20,12 +20,12 @@ GitHub Actions (.github/workflows/android-antonio.yml)
         ├── Decode keystore from GitHub Secret
         └── bundle exec fastlane android firebase_beta
                 │
-                ├── gradle assemble AntonioBuildRelease  ← productFlavor mới
-                ├── gradle bundle AntonioBuildRelease
+                ├── gradle assemble AntonioRelease  ← productFlavor Antonio
+                ├── gradle bundle AntonioRelease
                 └── firebase_app_distribution
                         │
                         └── Firebase Console
-                                └── App: com.demo_app.antonio
+                                └── App: corleone.dev.demo_app.antonio
                                         └── Group: antonio-testers
 ```
 
@@ -36,19 +36,20 @@ GitHub Actions (.github/workflows/android-antonio.yml)
 | # | Bước | Thay đổi ở đâu |
 |---|------|----------------|
 | 1 | Thêm `Antonio` productFlavor | `android/app/build.gradle` |
-| 2 | Đăng ký app trong Firebase Console | Firebase Console (external) |
-| 3 | Cập nhật `google-services.json` | `android/app/google-services.json` |
-| 4 | Thêm lane `firebase_beta` vào Fastfile | `fastlane/Fastfile` |
-| 5 | Tạo GitHub Actions workflow mới | `.github/workflows/android-antonio.yml` |
-| 6 | Thêm GitHub Secrets | GitHub repo settings (external) |
+| 2 | Thêm `fastlane-plugin-firebase_app_distribution` | `Gemfile` |
+| 3 | Thêm lane `firebase_beta` vào Fastfile | `fastlane/Fastfile` |
+| 4 | Tạo GitHub Actions workflow mới | `.github/workflows/android-antonio.yml` |
+| 5 | Tạo Firebase project + đăng ký app | Firebase Console (external) |
+| 6 | Download `google-services.json` | `android/app/google-services.json` |
+| 7 | Enable App Distribution + tạo tester group | Firebase Console (external) |
+| 8 | Lấy `FIREBASE_TOKEN` qua `firebase login:ci` | terminal |
+| 9 | Thêm GitHub Secrets | GitHub repo settings (external) |
 
 ---
 
 ## Bước 1 — Thêm `Antonio` productFlavor
 
 File: `android/app/build.gradle`
-
-Tìm block `android { ... }`, thêm `flavorDimensions` và `productFlavors` sau `buildTypes`:
 
 ```groovy
 android {
@@ -57,124 +58,71 @@ android {
     flavorDimensions "environment"
 
     productFlavors {
-        // Flavor mặc định — map với build hiện tại (Google Play)
-        Production {
+        Prod {
             dimension "environment"
-            // Không có suffix → applicationId = "com.demo_app"
+            applicationId "corleone.dev.demo_app"
         }
-
-        // Flavor mới cho Firebase distribution
+        Dev {
+            dimension "environment"
+            applicationId "corleone.dev.demo_app.dev"
+        }
         Antonio {
             dimension "environment"
-            applicationIdSuffix ".antonio"
-            // app name hiển thị trên device
-            resValue "string", "app_name", "DemoApp Antonio"
+            applicationId "corleone.dev.demo_app.antonio"
         }
     }
 }
 ```
 
-> **Tại sao cần `Production` flavor?**
-> Khi thêm `flavorDimensions`, Gradle yêu cầu tất cả variant phải có flavor.
-> `Production` đóng vai trò "default" để không break build hiện tại.
->
-> Sau khi thêm, các build variant mới sẽ là:
-> - `ProductionRelease` (cũ, dùng cho Google Play)
-> - `AntonioRelease` (mới, dùng cho Firebase)
+> **Tại sao cần flavor `Prod` khi thêm `flavorDimensions`?**
+> Gradle yêu cầu tất cả variant phải có flavor khi `flavorDimensions` được khai báo.
+> Không có `Prod` → task `bundleRelease` không còn tồn tại → CI cũ sẽ fail.
+
+Sau khi thêm, build variants:
+- `ProdRelease` → applicationId = `corleone.dev.demo_app` → Google Play
+- `AntonioRelease` → applicationId = `corleone.dev.demo_app.antonio` → Firebase
 
 ---
 
-## Bước 2 — Đăng ký app trong Firebase Console
+## Bước 2 — Thêm Fastlane plugin vào Gemfile
 
-1. Vào [Firebase Console](https://console.firebase.google.com) → project của bạn
-2. **Add app** → chọn Android
-3. **Package name:** `com.demo_app.antonio` ← phải khớp với applicationId + suffix
-4. Download `google-services.json`
-5. Ghi lại **App ID** — format: `1:xxxxxxxxxxxx:android:xxxxxxxxxxxxxxxx`
+File: `Gemfile`
 
-> **Lưu ý:** Nếu chưa có Firebase project, tạo mới project trước.
-> Nếu không có quyền tạo app, hỏi người quản lý Firebase Console.
-
----
-
-## Bước 3 — Cập nhật `google-services.json`
-
-File: `android/app/google-services.json`
-
-Nếu chưa có file này, tạo mới từ Firebase Console (download).
-Nếu đã có, mở file và thêm block client cho `com.demo_app.antonio` vào mảng `"client"`:
-
-```json
-{
-  "project_info": {
-    "project_number": "XXXXXXXXXXXX",
-    "project_id": "your-firebase-project-id",
-    "storage_bucket": "your-firebase-project-id.appspot.com"
-  },
-  "client": [
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:XXXXXXXXXXXX:android:XXXXXXXXXX",
-        "android_client_info": {
-          "package_name": "com.demo_app"
-        }
-      },
-      "api_key": [{ "current_key": "AIza..." }],
-      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:XXXXXXXXXXXX:android:YYYYYYYYYY",
-        "android_client_info": {
-          "package_name": "com.demo_app.antonio"
-        }
-      },
-      "api_key": [{ "current_key": "AIza..." }],
-      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
-    }
-  ],
-  "configuration_version": "1"
-}
+```ruby
+gem 'fastlane'
+gem 'fastlane-plugin-firebase_app_distribution'
 ```
 
-> **Cách nhanh nhất:** Download file `google-services.json` từ Firebase Console sau bước 2 —
-> Firebase tự tạo file đầy đủ với tất cả các app đã đăng ký trong project.
+Sau đó chạy:
+```bash
+bundle install
+```
+
+> **Tại sao phải chạy `bundle install` sau khi sửa Gemfile?**
+> `bundle install` download gem mới và update `Gemfile.lock`.
+> CI dùng `bundler-cache: true` đọc `Gemfile.lock` để restore cache.
+> Nếu `Gemfile.lock` cũ (thiếu gem) → CI fail hoặc không cache được.
+> Rule: sửa Gemfile → luôn commit cả `Gemfile` lẫn `Gemfile.lock`.
 
 ---
 
-## Bước 4 — Thêm lane `firebase_beta` vào Fastfile
+## Bước 3 — Thêm lane `firebase_beta` vào Fastfile
 
 File: `fastlane/Fastfile`
 
-Tìm `platform :android do` và thêm lane mới trước `lane :beta do`:
-
 ```ruby
-# ─────────────────────────────────────────────────────────────
-#  firebase_beta
-#  Build APK + AAB → upload to Firebase App Distribution
-#
-#  Khác biệt so với lane :beta (Google Play):
-#  - firebase_beta dùng firebase_app_distribution (không cần Google Play)
-#  - Không cần versionCode incremental — Firebase chấp nhận string
-#  - Dùng ENV['FIREBASE_APP_ID'] và ENV['ANDROID_BUILD_FLAVOUR']
-#  - Phù hợp cho internal QA/staging environment
-# ─────────────────────────────────────────────────────────────
-desc "Build APK + AAB → upload to Firebase App Distribution"
+desc "Build APK + AAB → upload to Firebase App Distribution (non-production environments)"
 lane :firebase_beta do
-  version_code = ENV["APP_VERSION_CODE"] || (Time.now.to_i / 60).to_s
-  version_name = ENV["APP_VERSION"]      || "1.0.0"
   flavour      = ENV["ANDROID_BUILD_FLAVOUR"] || "Antonio"
+  version_code = ENV["APP_VERSION_CODE"]      || Time.now.strftime("%Y%m%d%H")
+  version_name = ENV["APP_VERSION"]           || "1.0.0"
 
-  UI.message "Building #{flavour} #{version_name} (#{version_code})..."
-
-  gradle(
-    task:        "clean"
-  )
+  gradle(task: "clean", project_dir: "android/")
 
   gradle(
-    task:       "assemble",
-    flavor:     flavour,
-    build_type: "Release",
+    task:        "assemble",
+    flavor:      flavour,
+    build_type:  "Release",
     project_dir: "android/",
     properties: {
       "android.injected.signing.store.file"     => ENV["ANDROID_KEYSTORE_PATH"],
@@ -187,9 +135,9 @@ lane :firebase_beta do
   )
 
   gradle(
-    task:       "bundle",
-    flavor:     flavour,
-    build_type: "Release",
+    task:        "bundle",
+    flavor:      flavour,
+    build_type:  "Release",
     project_dir: "android/",
     properties: {
       "android.injected.signing.store.file"     => ENV["ANDROID_KEYSTORE_PATH"],
@@ -202,10 +150,15 @@ lane :firebase_beta do
   )
 
   firebase_app_distribution(
-    app:              ENV["FIREBASE_APP_ID"],
-    groups:           ENV["FIREBASE_GROUPS"] || "antonio-testers",
-    firebase_cli_path: "./node_modules/.bin/firebase",
-    release_notes:    release_notes,
+    app:                   ENV["FIREBASE_APP_ID"],
+    groups:                ENV["FIREBASE_GROUPS"] || "antonio-testers",
+    # WHY firebase_cli_token: CI runner không có browser → không thể `firebase login`.
+    # `firebase login:ci` tạo 1 token offline dùng được trên CI.
+    firebase_cli_token:    ENV["FIREBASE_TOKEN"],
+    # WHY ../node_modules: Fastfile chạy từ thư mục fastlane/
+    # → relative path lên 1 level để tìm node_modules ở root
+    firebase_cli_path:     "../node_modules/.bin/firebase",
+    release_notes:         release_notes,
     android_artifact_type: "AAB",
   )
 
@@ -213,18 +166,14 @@ lane :firebase_beta do
 end
 ```
 
-> **Tại sao `firebase_cli_path: "./node_modules/.bin/firebase"`?**
-> Firebase CLI cần được cài sẵn trong `node_modules` (thêm `firebase-tools` vào `package.json`).
-> CI runner không cần cài global `firebase-tools`.
-
-**Thêm `firebase-tools` vào `package.json`:**
-```bash
-npm install --save-dev firebase-tools
-```
+> **So sánh với lane `beta` (Google Play):**
+> - `beta`: dùng `supply` + `GOOGLE_PLAY_JSON_KEY_PATH` + versionCode incremental từ Play API
+> - `firebase_beta`: dùng `firebase_app_distribution` + `FIREBASE_TOKEN` + versionCode từ `github.run_number`
+> - Firebase không yêu cầu versionCode incremental như Play Store → `github.run_number` là đủ
 
 ---
 
-## Bước 5 — Tạo GitHub Actions workflow
+## Bước 4 — Tạo GitHub Actions workflow
 
 File: `.github/workflows/android-antonio.yml`
 
@@ -236,12 +185,11 @@ name: Android Antonio → Firebase Distribution
 on:
   push:
     branches:
-      - antonio          # trigger khi push lên branch "antonio"
+      - antonio
     paths-ignore:
       - '**.md'
       - 'docs/**'
-
-  workflow_dispatch:     # cho phép trigger thủ công từ GitHub UI
+  workflow_dispatch:
 
 concurrency:
   group: android-antonio
@@ -249,47 +197,39 @@ concurrency:
 
 jobs:
   deploy-antonio:
-    name: Build & Upload to Firebase
+    name: Build & Upload to Firebase Distribution
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
           bundler-cache: true
 
-      - name: Install JS dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-gradle-
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
 
       - name: Decode Android Keystore
         env:
@@ -298,17 +238,17 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /tmp/antonio.keystore
           echo "ANDROID_KEYSTORE_PATH=/tmp/antonio.keystore" >> $GITHUB_ENV
 
-      - name: Build & Upload to Firebase
+      - name: Build & Upload to Firebase Distribution
         env:
-          # Signing
           ANDROID_KEYSTORE_PATH:     ${{ env.ANDROID_KEYSTORE_PATH }}
           ANDROID_KEYSTORE_ALIAS:    ${{ secrets.ANDROID_ANTONIO_KEYSTORE_ALIAS }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_ANTONIO_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD:      ${{ secrets.ANDROID_ANTONIO_KEY_PASSWORD }}
-          # Firebase
           FIREBASE_APP_ID:           ${{ secrets.ANDROID_ANTONIO_FIREBASE_APP_ID }}
           FIREBASE_GROUPS:           antonio-testers
-          # Build config
+          # WHY FIREBASE_TOKEN: generate once locally via `firebase login:ci`
+          # token này không expire → dùng được trên CI mãi mãi (cho đến khi revoke)
+          FIREBASE_TOKEN:            ${{ secrets.FIREBASE_TOKEN }}
           ANDROID_BUILD_FLAVOUR:     Antonio
           APP_VERSION:               ${{ secrets.APP_VERSION }}
           APP_VERSION_CODE:          ${{ github.run_number }}
@@ -319,77 +259,102 @@ jobs:
         run: rm -f /tmp/antonio.keystore
 ```
 
+> **Tại sao workflow riêng thay vì chung `android-beta.yml`?**
+> - `android-beta.yml` dùng Google Play secrets (`GOOGLE_PLAY_JSON_KEY_BASE64`)
+> - `android-antonio.yml` dùng Firebase secrets (`ANDROID_ANTONIO_FIREBASE_APP_ID`)
+> - Tách rõ ràng = dễ debug, dễ thêm env mới
+> - Tương đương YARA: mỗi environment có vault path riêng
+
 ---
 
-## Bước 6 — Thêm GitHub Secrets
+## Bước 5–7 — Firebase Console setup
+
+1. Vào [console.firebase.google.com](https://console.firebase.google.com) → **Add project** → đặt tên
+2. **Add app** → Android → Package name: `corleone.dev.demo_app.antonio`
+3. Download `google-services.json` → đặt vào `android/app/google-services.json`
+4. Ghi lại **App ID** (format: `1:xxxxxxxxxxxx:android:xxxxxxxxxxxxxxxx`) — cần cho GitHub Secret
+5. Sidebar → **DevOps & Engagement** → **App Distribution**
+6. Tab **Testers & Groups** → **Add group** → tên: `antonio-testers` → thêm email testers
+
+> **`google-services.json` có bắt buộc không?**
+> Cho App Distribution: **không bắt buộc** — Fastlane CLI dùng `FIREBASE_TOKEN` + `FIREBASE_APP_ID`,
+> không cần parse file này.
+> Bắt buộc nếu app dùng Firebase SDKs (Analytics, Crashlytics) — khi đó Gradle plugin cần file để
+> generate config constants khi build.
+
+---
+
+## Bước 8 — Lấy FIREBASE_TOKEN
+
+```bash
+./node_modules/.bin/firebase login:ci
+# → mở browser để auth → sau đó print token dạng 1//0g... vào terminal
+```
+
+> **Tại sao `firebase login:ci` thay vì `firebase login`?**
+> `firebase login` lưu session trên máy local (requires browser).
+> CI runner là ephemeral — mỗi build là máy mới, không có browser.
+> `firebase login:ci` tạo **offline token** — một chuỗi string dùng được trên bất kỳ máy nào
+> mà không cần browser. Token này không expire cho đến khi bị revoke thủ công.
+
+---
+
+## Bước 9 — GitHub Secrets
 
 Vào: `GitHub repo → Settings → Secrets and variables → Actions`
 
-Thêm các secret sau:
+| Secret | Giá trị | Ghi chú |
+|--------|---------|---------|
+| `ANDROID_ANTONIO_FIREBASE_APP_ID` | `1:xxxx:android:yyyy` | Từ Firebase Console → Project Settings → Your apps |
+| `FIREBASE_TOKEN` | Token từ `firebase login:ci` | Offline CI token — dùng chung cho tất cả Firebase apps |
+| `ANDROID_ANTONIO_KEYSTORE_BASE64` | `base64 -i release.keystore \| pbcopy` | Có thể dùng chung keystore với Prod |
+| `ANDROID_ANTONIO_KEYSTORE_ALIAS` | alias trong keystore | Same as `ANDROID_KEYSTORE_ALIAS` nếu dùng chung keystore |
+| `ANDROID_ANTONIO_KEYSTORE_PASSWORD` | store password | Same as `ANDROID_KEYSTORE_PASSWORD` nếu dùng chung |
+| `ANDROID_ANTONIO_KEY_PASSWORD` | key password | Same as `ANDROID_KEY_PASSWORD` nếu dùng chung |
 
-| Secret name | Giá trị | Ghi chú |
-|-------------|---------|---------|
-| `ANDROID_ANTONIO_FIREBASE_APP_ID` | `1:xxxx:android:yyyy` | Lấy từ Firebase Console bước 2 |
-| `ANDROID_ANTONIO_KEYSTORE_BASE64` | base64 của file `.keystore` | `base64 -i release.keystore \| pbcopy` |
-| `ANDROID_ANTONIO_KEYSTORE_ALIAS` | alias trong keystore | |
-| `ANDROID_ANTONIO_KEYSTORE_PASSWORD` | store password | |
-| `ANDROID_ANTONIO_KEY_PASSWORD` | key password | |
-| `APP_VERSION` | `1.0.0` | version name |
-
-> **Cách tạo keystore nếu chưa có:**
-> ```bash
-> keytool -genkey -v \
->   -keystore android/app/antonio.keystore \
->   -alias antonio-key \
->   -keyalg RSA \
->   -keysize 2048 \
->   -validity 10000
-> ```
-> Sau đó encode: `base64 -i android/app/antonio.keystore | pbcopy`
->
-> **QUAN TRỌNG:** Thêm `*.keystore` vào `.gitignore` — không commit keystore lên repo.
+> **Dùng chung keystore Prod hay tạo keystore riêng?**
+> - **Dùng chung**: đơn giản hơn, Antonio là env học tập không lên Play Store → không cần keystore riêng
+> - **Keystore riêng**: cần nếu Antonio sẽ là 1 app độc lập trên Play Store với package name khác
+> - Trong dự án thực: mỗi app (package name khác nhau) có keystore riêng; cùng package name thì dùng chung
 
 ---
 
 ## Verify — Kiểm tra pipeline hoạt động
 
-### Local (trước khi push)
-
 ```bash
-# 1. Verify flavor được nhận diện
-cd android && ./gradlew tasks | grep -i antonio
+# 1. Commit changes
+git add android/app/build.gradle \
+        android/app/google-services.json \
+        Gemfile Gemfile.lock \
+        fastlane/Fastfile \
+        .github/workflows/android-antonio.yml
 
-# 2. Test build local (cần set env vars)
-export ANDROID_BUILD_FLAVOUR=Antonio
-export ANDROID_KEYSTORE_PATH=app/antonio.keystore
-export ANDROID_KEYSTORE_ALIAS=antonio-key
-export ANDROID_KEYSTORE_PASSWORD=your_password
-export ANDROID_KEY_PASSWORD=your_password
-export FIREBASE_APP_ID=1:xxxx:android:yyyy
-export APP_VERSION=1.0.0
-export APP_VERSION_CODE=1
+git commit -m "feat: setup Firebase App Distribution for Antonio flavor"
 
-bundle exec fastlane android firebase_beta
-
-# 3. Kiểm tra file output
-ls android/app/build/outputs/bundle/antonioRelease/
-```
-
-### CI (sau khi push)
-
-```bash
-# 1. Tạo branch antonio
+# 2. Push lên branch antonio để trigger workflow
 git checkout -b antonio
 git push -u origin antonio
 
-# 2. Xem pipeline tại GitHub Actions tab
+# 3. Theo dõi tại GitHub Actions tab
 # Expected: workflow "Android Antonio → Firebase Distribution" triggered
 
-# 3. Kiểm tra Firebase Console
-# App Distribution → chọn app "com.demo_app.antonio"
+# 4. Kiểm tra Firebase Console
+# App Distribution → app "corleone.dev.demo_app.antonio"
 # → Releases → build mới xuất hiện
-# → Groups: "antonio-testers" nhận email thông báo
+# → Group "antonio-testers" nhận email thông báo
 ```
+
+---
+
+## Troubleshooting
+
+| Lỗi | Nguyên nhân | Fix |
+|-----|-------------|-----|
+| `Could not find gem 'fastlane-plugin-firebase_app_distribution'` | Chưa chạy `bundle install` sau khi sửa Gemfile | `bundle install` → commit `Gemfile.lock` |
+| `App Distribution is not enabled` | Chưa enable trong Firebase Console | Firebase Console → App Distribution → Get started |
+| `Invalid Firebase token` | FIREBASE_TOKEN sai hoặc expired | Chạy lại `firebase login:ci` → update secret |
+| `App not found` | FIREBASE_APP_ID sai | Kiểm tra Project Settings → Your apps → App ID |
+| `Could not find task ':app:assembleAntonioRelease'` | Flavor chưa được khai báo trong build.gradle | Kiểm tra `productFlavors { Antonio { ... } }` |
 
 ---
 
@@ -401,19 +366,23 @@ git push -u origin antonio
 | Fastfile location | `fastlane/` (root) | `android/fastlane/` |
 | Build trigger mapping | Hardcode trong workflow | Dynamic qua `map-trigger-pattern-environment` |
 | Runners | `ubuntu-latest` (GitHub-hosted) | Self-hosted `gh-runner-apac-large` |
-| Firebase CLI | `node_modules/.bin/firebase` | `../node_modules/.bin/firebase` |
+| Firebase CLI path | `../node_modules/.bin/firebase` | `../node_modules/.bin/firebase` |
 | versionCode | `github.run_number` | `github.run_number + 44070` (legacy offset) |
+| Auth | `firebase_cli_token` | `firebase_cli_token` |
 
 ---
 
 ## Checklist hoàn thành
 
-- [ ] `android/app/build.gradle` — thêm `flavorDimensions` + `Antonio` productFlavor
-- [ ] Firebase Console — đăng ký `com.demo_app.antonio`, ghi lại App ID
-- [ ] `android/app/google-services.json` — cập nhật với client mới
-- [ ] `package.json` — thêm `firebase-tools` vào devDependencies
-- [ ] `fastlane/Fastfile` — thêm lane `firebase_beta`
-- [ ] `.github/workflows/android-antonio.yml` — tạo workflow mới
-- [ ] GitHub Secrets — thêm 5 secret `ANDROID_ANTONIO_*`
+- [x] `android/app/build.gradle` — thêm `flavorDimensions` + `Antonio` productFlavor
+- [x] `Gemfile` — thêm `fastlane-plugin-firebase_app_distribution` + chạy `bundle install`
+- [x] `fastlane/Fastfile` — thêm lane `firebase_beta` với `firebase_cli_token`
+- [x] `.github/workflows/android-antonio.yml` — tạo workflow mới với `FIREBASE_TOKEN` secret
+- [x] Firebase Console — tạo project, đăng ký app `corleone.dev.demo_app.antonio`
+- [x] `android/app/google-services.json` — download từ Firebase Console + đặt vào project
+- [x] Firebase Console — enable App Distribution, tạo group `antonio-testers`
+- [x] `FIREBASE_TOKEN` — lấy qua `firebase login:ci`
+- [x] GitHub Secrets — thêm 6 secrets `ANDROID_ANTONIO_*` + `FIREBASE_TOKEN`
 - [ ] Push branch `antonio` → verify pipeline green
 - [ ] Firebase Console — xác nhận build xuất hiện trong App Distribution
+- [ ] Tester nhận email thông báo có build mới
