@@ -121,24 +121,26 @@ npm install react-native-config
 # iOS sẽ pod install ở Sprint 5; Android autolink tự động
 ```
 
-**2b. Tạo env files (root project)**
+**2b. Tạo env files (root project)** — 🔒 CHỐT: repo học tập → trỏ **public mock API** để thấy env switch chạy
 ```ini
 # .env            (default = Prod)
-API_BASE_URL=https://api.prod.example.com
-API_KEY=__prod_key__
+API_BASE_URL=https://dummyjson.com
+API_KEY=demo-prod-key-not-real
 FEATURE_NEW_UI=false
 
-# .env.qa
-API_BASE_URL=https://api.qa.example.com
-API_KEY=__qa_key__
+# .env.qa         (QA trỏ backend KHÁC → mắt thấy data khác = verify switch)
+API_BASE_URL=https://fakestoreapi.com
+API_KEY=demo-qa-key-not-real
 FEATURE_NEW_UI=true
 
 # .env.dev
-API_BASE_URL=https://api.dev.example.com
-API_KEY=__dev_key__
+API_BASE_URL=https://dummyjson.com
+API_KEY=demo-dev-key-not-real
 FEATURE_NEW_UI=true
 ```
-> ⚠️ `.env*` chứa key thật → thêm vào `.gitignore`, chỉ commit `.env.example`. KHÔNG commit secrets (rule repo).
+> **Vì sao 2 host khác nhau:** Prod (`dummyjson.com`) vs QA (`fakestoreapi.com`) trả data shape khác → mở từng build thấy data khác → chứng minh env injection chạy. Cả 2 API public, không cần key thật → `API_KEY` chỉ placeholder.
+> **Muốn realistic hơn** (mô phỏng "QA backend độc lập"): tạo free mock ở [beeceptor.com](https://beeceptor.com) → `yourname-qa.free.beeceptor.com`.
+> ⚠️ **Discipline:** `.env*` vào `.gitignore`, chỉ commit `.env.example` (placeholder). Dù key ở đây là giả, vẫn giữ thói quen KHÔNG commit secrets (rule repo).
 
 **2c. Map flavor → env file** trong `android/app/build.gradle` (TRƯỚC block `android {}`)
 ```groovy
@@ -168,14 +170,20 @@ export const ENV = {
 } as const;
 ```
 
-**Done when:** chạy `Qa` build, log/UI hiển thị `apiBaseUrl === https://api.qa.example.com`.
+**Done when:** chạy `Qa` build, log/UI hiển thị `apiBaseUrl === https://fakestoreapi.com` (khác Prod `dummyjson.com`).
 
 **Alternative (không thêm lib):** dùng `buildConfigField` + `resValue` trong từng flavor → đọc qua `BuildConfig.API_BASE_URL` ở native, nhưng phải tự viết bridge để JS đọc → nhiều boilerplate hơn. Chỉ chọn nếu muốn zero dependency.
 
 ---
 
 ### ⬜ T3 — ProGuard / R8 cho QA
-**Quyết định cần chốt:** QA nên minify **giống Production** để bắt sớm lỗi do R8 strip class — nhưng giữ stack trace đọc được.
+**🔒 CHỐT: Option B — BẬT R8** (không phải A). Lý do: repo học tập → tắt minify thì rules không bao giờ chạy = không exercise được R8 = không học được gì. US scope "ProGuard/R8 appropriately configured" yêu cầu nó *thực sự chạy*. Rủi ro thấp vì RN ship sẵn consumer ProGuard rules qua autolink.
+
+**File:** `android/app/build.gradle` (1 dòng)
+```groovy
+def enableProguardInReleaseBuilds = true   // đổi false → true (áp dụng mọi release flavor)
+```
+> AGP **không** cho set `minifyEnabled` per-flavor trong DSL → bật global cho `release` buildType là cách sạch nhất. Ảnh hưởng cả Antonio release nhưng OK (Antonio cũng là env học tập, không phải Play Store production với user thật).
 
 **File:** `android/app/proguard-rules.pro` (thêm)
 ```proguard
@@ -187,44 +195,50 @@ export const ENV = {
 -keep class com.demo_app.BuildConfig { *; }
 ```
 
-**File:** `android/app/build.gradle` — 2 lựa chọn:
-
-- **Option A (recommended, low-risk):** giữ `enableProguardInReleaseBuilds = false` cho mọi flavor (đồng nhất với Prod hiện tại). Rules ở trên vẫn add sẵn → khi bật R8 sau này không vỡ. AC "appropriately configured" = rules đúng & sẵn sàng.
-- **Option B (QA-faithful):** bật riêng R8 cho QA để mirror production thật:
-```groovy
-buildTypes {
-    release {
-        // ... giữ nguyên
-        minifyEnabled enableProguardInReleaseBuilds
-    }
-}
-// QA muốn test với R8 giống prod tương lai → cân nhắc bật minifyEnabled true
-// nhưng phải verify app không crash do thiếu keep-rule trước khi giao QA
+**Phần luyện tập thật sự (điểm học của task này):**
+```bash
+cd android && ./gradlew assembleQaRelease
+# App crash sau minify? → đọc logcat → tìm class bị R8 strip → thêm -keep rule → build lại (vòng lặp R8)
+# De-obfuscate stack trace bằng mapping.txt:
+#   android/app/build/outputs/mapping/qaRelease/mapping.txt
 ```
 
-> **Recommendation:** Option A cho lần setup đầu (tránh QA bị block bởi lỗi R8 chưa rõ). Ghi chú trong PR rằng rules đã ready để chuyển Option B khi Prod bật minify.
-
-**Done when:** build QA release thành công; nếu chọn B → app mở được, không `ClassNotFoundException`.
+**Done when:** `assembleQaRelease` build xong, app mở được không `ClassNotFoundException`; biết dùng `mapping.txt` để đọc lại stack trace bị obfuscate.
 
 ---
 
 ### ⬜ T4 — Launcher icon + app name riêng cho QA
-App name đã xong ở T1 (`resValue app_name`). Còn icon:
+App name đã xong ở T1 (`resValue app_name`). Icon → **🔒 CHỐT: easylauncher gradle plugin** (tự overlay ribbon "QA" lên icon Prod lúc build — khỏi sửa PNG tay).
 
-**Cấu trúc resource override** (Gradle tự ưu tiên `src/qa/` đè `src/main/`):
+**4a. Thêm plugin** — `android/build.gradle` (root)
+```groovy
+buildscript {
+    dependencies {
+        classpath 'com.project.starter:easylauncher:6.4.0'   // check latest version
+    }
+}
 ```
-android/app/src/qa/res/
-├── mipmap-mdpi/ic_launcher.png      (+ ic_launcher_round.png)
-├── mipmap-hdpi/ic_launcher.png
-├── mipmap-xhdpi/ic_launcher.png
-├── mipmap-xxhdpi/ic_launcher.png
-└── mipmap-xxxhdpi/ic_launcher.png
+
+**4b. Apply + config** — `android/app/build.gradle`
+```groovy
+apply plugin: 'com.starter.easylauncher'   // đầu file, cạnh các apply plugin khác
+
+// cuối file, NGOÀI block android {}
+easylauncher {
+    productFlavors {
+        Qa      { filters = [ customRibbon(label: "QA",  ribbonColor: "#FF6600") ] }
+        Dev     { filters = [ customRibbon(label: "DEV", ribbonColor: "#0066FF") ] }
+        Antonio { filters = [ grayRibbonFilter() ] }
+        // Prod: không filter → icon gốc sạch
+    }
+}
 ```
-> Nếu Prod dùng adaptive icon (`mipmap-anydpi-v26/ic_launcher.xml` + `ic_launcher_foreground.png`) thì override foreground + thêm badge "QA".
 
-**Cách tạo nhanh icon QA:** lấy icon Prod + overlay ribbon/badge "QA" (ImageMagick hoặc tool như `easylauncher` gradle plugin). Tạm thời có thể copy icon Prod + đổi màu nền để phân biệt.
+**WHY easylauncher** thay vì bỏ PNG tay vào `src/qa/res/mipmap-*`: làm tay phải sửa ~10 file (5 mật độ × 2 round); plugin generate tự động lúc build, là kỹ thuật dùng thật ở production.
 
-**Done when:** cài QA build → launcher hiện "DemoApp QA" + icon khác Prod.
+> **Học thêm cơ chế gốc (optional):** bỏ thử 1 file `src/qa/res/mipmap-hdpi/ic_launcher.png` để thấy Gradle ưu tiên `src/qa/` đè `src/main/`. Nhưng để xong việc → dùng plugin.
+
+**Done when:** cài QA build → launcher hiện "DemoApp QA" + icon có ribbon "QA" cam, phân biệt rõ với Prod.
 
 ---
 
@@ -378,7 +392,7 @@ cd android && ./gradlew bundleQaRelease
 - [ ] App name "DemoApp QA" + icon QA hiển thị đúng
 - [ ] App trỏ về QA backend (`Config.API_BASE_URL`)
 - [ ] APK ký bằng release keystore (`apksigner verify --print-certs`)
-- [ ] (nếu Option B) app không crash với R8 bật
+- [ ] App không crash với R8 bật (crash → đọc logcat → thêm keep rule); biết dùng `mapping.txt`
 
 ---
 
@@ -388,8 +402,9 @@ cd android && ./gradlew bundleQaRelease
 |---|---|---|
 | Firebase project riêng hay chung? | **Chung** với Antonio | Đỡ quản lý, chỉ thêm app registration |
 | Keystore QA riêng hay chung? | **Chung** | QA không lên Play Store |
-| Env injection approach | **react-native-config** | 1 API cho 2 platform, ít boilerplate |
-| ProGuard QA | **Option A** (off, rules ready) | Tránh block QA bởi lỗi R8 lần đầu |
+| Env injection approach | **react-native-config** + mock API (dummyjson/fakestoreapi) | 1 API cho 2 platform; 2 host khác → verify switch bằng mắt |
+| ProGuard QA | **Option B — bật R8** (global release) | Tắt thì không exercise R8 → không học; RN ship sẵn consumer rules nên rủi ro thấp |
+| Icon QA | **easylauncher plugin** (ribbon "QA") | Khỏi sửa ~10 PNG tay; kỹ thuật production thật |
 | CI trigger | **`release/android`** | Tách khỏi release/ios, không build thừa |
 | Distribution | **Firebase App Distribution** | Theo US (Android) |
 
@@ -402,16 +417,16 @@ T1 (flavor)  →  T2 (env config)  →  T3 (proguard)  →  T4 (icon)  →  T5 (
                                                                           │
 T6 (Firebase app) → T9 (secrets) → T7 (fastlane verify) → T8 (workflow) → T10 (docs)
 ```
-Ước lượng: **~5–6h** dev (T4 icon tốn nhất nếu chưa có asset).
+Ước lượng: **~5–6h** dev (T3 vòng lặp debug R8 dễ tốn thời gian nhất; T4 icon nhanh nhờ easylauncher).
 
 ---
 
 ## 9. Master progress checklist
 
 - [ ] T1 — `Qa` productFlavor trong build.gradle
-- [ ] T2 — react-native-config + `.env.qa` + `src/config/env.ts`
-- [ ] T3 — ProGuard rules (keepattributes + RNConfig keep)
-- [ ] T4 — Launcher icon override `src/qa/res/mipmap-*`
+- [ ] T2 — react-native-config + `.env.qa` (mock API) + `src/config/env.ts`
+- [ ] T3 — Bật R8 (`enableProguardInReleaseBuilds = true`) + keep rules + verify `mapping.txt`
+- [ ] T4 — Icon QA qua easylauncher plugin (ribbon "QA")
 - [ ] T5 — Verify signing (release keystore)
 - [ ] T6 — Firebase Console: app `.qa` + group `qa-testers` + google-services.json
 - [ ] T7 — Verify lane `firebase_beta` chạy với `ANDROID_BUILD_FLAVOUR=Qa`
