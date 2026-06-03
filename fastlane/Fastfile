@@ -515,11 +515,11 @@ platform :android do
       # WHY firebase_cli_token: CI runner không có browser → không thể `firebase login`.
       # `firebase login:ci` tạo 1 token offline dùng được trên CI.
       firebase_cli_token:    ENV["FIREBASE_TOKEN"],
-      # WHY ../node_modules: Fastfile chạy từ thư mục fastlane/
-      # → relative path lên 1 level để tìm node_modules ở root
-      firebase_cli_path:     "../node_modules/.bin/firebase",
       release_notes:         release_notes,
-      android_artifact_type: "AAB",
+      # WHY APK thay vì AAB: AAB yêu cầu Firebase project link với Google Play để process splits.
+      # APK install trực tiếp trên device → không cần Google Play integration.
+      # App Distribution dùng APK là đủ cho internal testers.
+      android_artifact_type: "APK",
     )
 
     UI.success "✅ #{flavour} #{version_name} (#{version_code}) → Firebase App Distribution!"
