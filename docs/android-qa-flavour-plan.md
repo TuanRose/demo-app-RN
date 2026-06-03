@@ -2,7 +2,7 @@
 
 > **Branch:** `release/android`
 > **Sprint:** hiện tại (iOS đã được defer sang Sprint 5 — xem `docs/ios-qa-scheme-plan.md`)
-> **Status:** 📋 PLANNED — chưa implement, chờ yêu cầu bắt đầu
+> **Status:** 🟡 IN PROGRESS — T1–T4 completed
 > **US:** Create dedicated QA build flavour (Android) — side-by-side install, QA backend, CI/CD distribution
 
 ---
@@ -423,10 +423,10 @@ T6 (Firebase app) → T9 (secrets) → T7 (fastlane verify) → T8 (workflow) �
 
 ## 9. Master progress checklist
 
-- [ ] T1 — `Qa` productFlavor trong build.gradle
-- [ ] T2 — react-native-config + `.env.qa` (mock API) + `src/config/env.ts`
-- [ ] T3 — Bật R8 (`enableProguardInReleaseBuilds = true`) + keep rules + verify `mapping.txt`
-- [ ] T4 — Icon QA qua easylauncher plugin (ribbon "QA")
+- [x] T1 — `Qa` productFlavor trong build.gradle
+- [x] T2 — react-native-config + `.env.qa` (mock API) + `src/config/env.ts`
+- [x] T3 — Bật R8 (`enableProguardInReleaseBuilds = true`) + keep rules + verify `mapping.txt`
+- [x] T4 — Icon QA qua easylauncher plugin (ribbon "QA")
 - [ ] T5 — Verify signing (release keystore)
 - [ ] T6 — Firebase Console: app `.qa` + group `qa-testers` + google-services.json
 - [ ] T7 — Verify lane `firebase_beta` chạy với `ANDROID_BUILD_FLAVOUR=Qa`
@@ -434,3 +434,38 @@ T6 (Firebase app) → T9 (secrets) → T7 (fastlane verify) → T8 (workflow) �
 - [ ] T9 — GitHub Secrets `ANDROID_QA_*`
 - [ ] T10 — Docs build & run QA locally
 - [ ] Verify pipeline xanh + build xuất hiện trên Firebase + tester nhận email
+
+---
+
+## 10. Lessons Learned — thực tế khác với plan
+
+### T2 — react-native-config
+- **Map format thực tế:** `envConfigFiles` dùng tên flavor viết hoa (`Qa`, `Prod`...), không phải lowercase concat `qadebug`/`qarelease` như plan gốc ghi. dotenv.gradle của lib handle case-insensitive matching.
+- **Env file đơn giản hơn plan:** chỉ dùng `API_BASE_URL` + `APP_ENV`. Bỏ `API_KEY`, `FEATURE_NEW_UI` vì mock API public không cần key; tránh thêm placeholder giả gây nhầm lẫn.
+
+### T3 — R8/ProGuard
+- **Keep rules thực tế:** thêm 3 rules cho RN core (`com.facebook.react.**`, `com.facebook.hermes.**`, `com.facebook.jni.**`) — plan gốc chỉ ghi `com.demo_app.BuildConfig`. JSI bridge dùng reflection → bắt buộc keep.
+- **mapping.txt path:** `app/build/outputs/mapping/QaRelease/mapping.txt` (viết hoa `Q`, `R`) — khác format thường thấy trong docs.
+
+### T4 — easylauncher (nhiều gotcha nhất)
+
+**1. Artifact không tồn tại trên google()/mavenCentral()**
+- Plan ghi `classpath 'com.project.starter:easylauncher:6.4.0'` → sai group ID và version.
+- Group ID đúng: `com.starter.easylauncher`. Version `6.4.0` không tồn tại → phải dùng `6.4.1`.
+- Plugin publish trên Gradle Plugin Portal → phải thêm `gradlePluginPortal()` vào `pluginManagement.repositories` trong `settings.gradle`.
+
+**2. Không dùng được `classpath` + `apply plugin` thông thường**
+- Approach `classpath(...)` trong `buildscript {}` + `apply plugin` không resolve được với project dùng `pluginManagement`.
+- Solution: dùng `plugins {}` block với `apply false`, sau đó `apply plugin` thủ công sau Android plugin.
+
+**3. `plugins {}` block phải đứng đầu file**
+- Gradle rule: `plugins {}` phải là statement đầu tiên, trước mọi `apply plugin`.
+- Nhưng easylauncher yêu cầu apply SAU Android plugin → dùng `apply false` trong `plugins {}` để resolve mà chưa apply, rồi `apply plugin: "com.starter.easylauncher"` đúng vị trí.
+
+**4. Config ribbon thực tế:**
+```groovy
+// Plan ghi: customRibbon(label: "QA", ribbonColor: "#FF6600")
+// Thực tế dùng built-in:
+filters(redRibbonFilter("QA"))
+```
+`redRibbonFilter` là built-in của lib, không cần config màu thủ công.

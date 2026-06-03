@@ -1,6 +1,12 @@
+// WHY apply false: plugins{} phải đứng đầu file, nhưng easylauncher yêu cầu
+// Android plugin apply trước. apply false = resolve plugin nhưng chưa apply,
+// sau đó apply thủ công đúng thứ tự bên dưới.
+plugins { id("com.starter.easylauncher") version "6.4.1" apply false }
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.starter.easylauncher"
 
 react {
     autolinkLibrariesWithApp()
@@ -81,6 +87,16 @@ android {
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+
+    // WHY: easylauncher chỉ config cho Qa — Prod/Dev/Antonio giữ icon gốc.
+    // Ribbon "QA" màu đỏ giúp tester phân biệt ngay app nào đang chạy trên device.
+    easylauncher {
+        productFlavors {
+            Qa {
+                filters(redRibbonFilter("YAA QA"))
+            }
         }
     }
 
