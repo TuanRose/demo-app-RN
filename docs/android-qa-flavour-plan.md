@@ -475,3 +475,27 @@ T6 (Firebase app) → T9 (secrets) → T7 (fastlane verify) → T8 (workflow) �
 filters(redRibbonFilter("QA"))
 ```
 `redRibbonFilter` là built-in của lib, không cần config màu thủ công.
+
+### T6 — Firebase Console
+
+- **`google-services.json` phải chứa tất cả apps trong cùng project:** sau khi add app QA, download lại file mới — file này chứa cả `.antonio` lẫn `.qa`. Không phải tạo file mới, chỉ replace file cũ.
+- **`google-services.json` không bắt buộc cho App Distribution:** Fastlane chỉ cần `FIREBASE_APP_ID` + `FIREBASE_TOKEN` để upload. File này chỉ cần nếu app dùng Firebase SDK (Analytics, Crashlytics...). Thêm vào "cho an toàn" và chuẩn bị cho tương lai.
+- **Group `qa-testers` tạo trong App Distribution:** Firebase Console → App Distribution → Testers & Groups → New group. Tester sẽ nhận email invite → accept → sau đó mỗi lần CI push sẽ tự nhận notification build mới.
+
+### T7/T8 — CI thực tế (phát hiện khi chạy pipeline)
+
+**1. `.env` files bị gitignore → CI không có**
+- `react-native-config` warn "Missing .env file" vì `.env` và `.env.qa` không được commit.
+- Fix: thêm step `Create env files` trong workflow trước bước build — hardcode mock API URL trực tiếp vì không phải secret thật.
+- **Bài học:** `.env` gitignore là đúng, nhưng CI cần được cấp env files bằng cách khác — hoặc tạo từ secrets (nếu sensitive) hoặc hardcode (nếu public mock).
+
+**2. Artifact path phân biệt hoa/thường**
+- APK output: `apk/Qa/release/app-Qa-release.apk` — folder tên flavor giữ nguyên casing (`Qa`, không phải `qa`)
+- AAB output: `bundle/QaRelease/app-Qa-release.aab` — camelCase, `Q` hoa
+- So sánh với Antonio: `bundle/AntonioRelease/app-Antonio-release.aab` — cùng pattern, `A` hoa
+- **Bài học:** AGP giữ nguyên casing của flavor name trong output path. Không lowercase như một số docs cũ ghi.
+
+**3. Release notes trong Firebase = git commit messages**
+- Fastlane lane dùng `sh("git log --format='• %s' -n 10")` → lấy 10 commit gần nhất làm release notes.
+- Tester thấy commit messages trong Firebase App Distribution UI và email notification.
+- **Bài học:** commit message chất lượng tốt → release notes có ý nghĩa cho QA team.
