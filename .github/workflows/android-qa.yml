@@ -152,7 +152,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: demo_app-qa-${{ github.run_number }}.apk
-          path: android/app/build/outputs/apk/qa/release/app-qa-release.apk
+          path: android/app/build/outputs/apk/Qa/release/app-Qa-release.apk
           retention-days: 1
 
       - name: Upload AAB artifact
@@ -160,7 +160,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: demo_app-qa-${{ github.run_number }}.aab
-          path: android/app/build/outputs/bundle/qaRelease/app-qa-release.aab
+          path: android/app/build/outputs/bundle/QaRelease/app-Qa-release.aab
           retention-days: 1
 
       # ─── Cleanup ───────────────────────────────────────────
