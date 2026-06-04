@@ -23,6 +23,11 @@
 
 - [ ] **Info.plist**: đổi `CFBundleDisplayName` thành `$(DISPLAY_NAME)` nếu chưa có
 
+- [ ] **App icon badge** (phân biệt visual với Prod):
+  - `fastlane-plugin-badge` đã setup → lane tự stamp badge lúc CI build
+  - Không cần tạo icon set riêng — badge inject ephemeral, không commit vào repo
+  - Verify: `add_badge(shield: "{ENV}-#{version_name}-orange")` có trong lane
+
 - [ ] **xcconfigs** (optional, cho env file):
   ```
   ios/xcconfigs/{ENV}.xcconfig       → ENVFILE = .env.{env}
@@ -38,7 +43,28 @@
 
 ---
 
-## Phase 2 — Apple Developer Portal & App Store Connect
+## Phase 2 — CocoaPods / SPM Dependencies
+
+> Scheme mới dùng chung target `demo_app` → không cần thêm pod mới.
+> Nhưng phải verify CocoaPods link đúng cho config mới.
+
+- [ ] Chạy lại `pod install` sau khi thêm build configuration:
+  ```bash
+  bundle exec pod install --project-directory=ios
+  ```
+
+- [ ] Kiểm tra `ios/Podfile.lock` không thay đổi bất thường (config mới không nên làm thay đổi pod versions)
+
+- [ ] Build thử scheme mới trên simulator để confirm không có linker error:
+  ```bash
+  npx react-native run-ios --scheme "demo_app-{ENV}" --configuration "Debug-{ENV}"
+  ```
+
+> **Tại sao cần bước này:** Xcode map build configuration vào CocoaPods config qua `Podfile`. Nếu config tên mới không khớp với mapping trong Podfile → CocoaPods dùng fallback `Release`, có thể thiếu debug symbols hoặc flag sai.
+
+---
+
+## Phase 3 — Apple Developer Portal & App Store Connect (Certificates prereq)
 
 > ⚠️ Thứ tự bắt buộc: Developer Portal → App Store Connect (không đảo ngược)
 
@@ -55,7 +81,7 @@
 
 ---
 
-## Phase 3 — Firebase Console
+## Phase 4 — Firebase Console (Distribution target)
 
 - [ ] **Thêm iOS app** vào Firebase project:
   - Firebase Console → Project → **Add app** → iOS
@@ -69,7 +95,7 @@
 
 ---
 
-## Phase 4 — Code Signing (match)
+## Phase 5 — Code Signing (match)
 
 - [ ] **Sync certificates + profiles** cho bundle ID mới:
   ```bash
@@ -84,7 +110,7 @@
 
 ---
 
-## Phase 5 — Fastlane Lane
+## Phase 6 — Fastlane Lane
 
 - [ ] **Thêm lane `distribute_{env}`** vào `fastlane/Fastfile`:
 
@@ -111,7 +137,7 @@
 
 ---
 
-## Phase 6 — GitHub Actions
+## Phase 7 — GitHub Actions
 
 - [ ] **Tạo `.github/workflows/ios-{env}.yml`** (clone từ `ios-qa.yml`):
   - Trigger: `push: branches: [release/ios-{env}]` (hoặc branch phù hợp)
@@ -132,7 +158,7 @@
 
 ---
 
-## Phase 7 — Verify
+## Phase 8 — Verify
 
 - [ ] Push lên branch trigger → CI xanh
 - [ ] Firebase App Distribution: build mới xuất hiện, group nhận email
