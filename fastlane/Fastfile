@@ -360,13 +360,16 @@ platform :ios do
       ].join(" "),
     )
 
+    # WHY no changelog: pilot with skip_waiting_for_build_processing: true +
+    # changelog causes it to wait for build to appear in ASC just to attach
+    # the changelog — defeating the purpose of skipping. QA builds don't need
+    # a changelog in TestFlight (release notes go to Firebase instead).
     pilot(
       api_key:                           api_key,
       ipa:                               "./build/ios/demo_app_qa.ipa",
       app_identifier:                    qa_app_id,
       skip_waiting_for_build_processing: true,
       distribute_external:               false,
-      changelog:                         release_notes,
     )
     UI.success "✅ QA #{version_name} (#{new_build_number}) → TestFlight!"
 
