@@ -1,12 +1,30 @@
+// WHY apply false: plugins{} phải đứng đầu file, nhưng easylauncher yêu cầu
+// Android plugin apply trước. apply false = resolve plugin nhưng chưa apply,
+// sau đó apply thủ công đúng thứ tự bên dưới.
+plugins { id("com.starter.easylauncher") version "6.4.1" apply false }
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.starter.easylauncher"
 
 react {
     autolinkLibrariesWithApp()
 }
 
-def enableProguardInReleaseBuilds = false
+// WHY true thay vì false: R8 shrink + obfuscate bytecode → APK nhỏ hơn, reverse engineer khó hơn.
+// mapping.txt được generate mỗi build release → dùng để de-obfuscate crash stack trace trên Firebase Crashlytics.
+def enableProguardInReleaseBuilds = true
+
+// WHY: react-native-config đọc ENVFILE để biết load file nào.
+// Map flavor name → env file; nếu không match thì fallback về .env (Prod).
+project.ext.envConfigFiles = [
+    Prod:    ".env",
+    Dev:     ".env",
+    Antonio: ".env",
+    Qa:      ".env.qa",
+]
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
@@ -72,6 +90,16 @@ android {
         }
     }
 
+    // WHY: easylauncher chỉ config cho Qa — Prod/Dev/Antonio giữ icon gốc.
+    // Ribbon "QA" màu đỏ giúp tester phân biệt ngay app nào đang chạy trên device.
+    easylauncher {
+        productFlavors {
+            Qa {
+                filters(redRibbonFilter("YAA QA"))
+            }
+        }
+    }
+
     // YARA pattern: mỗi environment là một productFlavor riêng biệt
     // → applicationId khác nhau → cài song song trên cùng 1 device
     // → CI inject ANDROID_BUILD_FLAVOUR → Fastlane build đúng flavor
@@ -98,6 +126,15 @@ android {
             dimension "environment"
             applicationIdSuffix ".antonio"
             resValue "string", "app_name", "DemoApp Antonio"
+        }
+
+        // Qa: applicationId = "corleone.dev.demo_app.qa"
+        // → cài song song với Prod/Dev/Antonio trên cùng device
+        // → Firebase App Distribution, trỏ QA backend
+        Qa {
+            dimension "environment"
+            applicationIdSuffix ".qa"
+            resValue "string", "app_name", "DemoApp QA"
         }
     }
 }

@@ -54,6 +54,11 @@ yarn-error.log
 **/fastlane/test_output
 fastlane/.env
 
+# react-native-config env files (chỉ .env.example được commit)
+.env
+.env.*
+!.env.example
+
 # Bundle artifact
 *.jsbundle
 
