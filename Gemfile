@@ -18,3 +18,4 @@ gem 'nkf'
 
 gem 'fastlane'
 gem 'fastlane-plugin-firebase_app_distribution'
+gem 'fastlane-plugin-badge'

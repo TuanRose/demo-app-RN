@@ -63,6 +63,14 @@ Build .ipa only (no upload) — verify build config
 
 Increment version number. Param: type (major|minor|patch). Example: bundle exec fastlane ios bump_version type:minor
 
+### ios distribute_qa
+
+```sh
+[bundle exec] fastlane ios distribute_qa
+```
+
+Build QA → TestFlight (app-store) + Firebase App Distribution (ad-hoc)
+
 ### ios refresh_profile
 
 ```sh

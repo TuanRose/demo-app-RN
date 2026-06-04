@@ -1,0 +1,6 @@
+// Debug-QA: inherits base QA settings + debug-specific overrides
+#include "QA.xcconfig"
+
+// WHY GCC_PREPROCESSOR_DEFINITIONS: cho phép dùng #if DEBUG trong native code
+// Giữ nguyên như Debug configuration gốc
+GCC_PREPROCESSOR_DEFINITIONS = DEBUG=1 $(inherited)

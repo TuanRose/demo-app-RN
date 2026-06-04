@@ -292,6 +292,124 @@ platform :ios do
   end
 
   # ─────────────────────────────────────────────────────────────
+  #  distribute_qa
+  #  Build QA scheme → distribute to BOTH:
+  #   ① TestFlight (app-store signed IPA) — unlimited testers
+  #   ② Firebase App Distribution (ad-hoc signed IPA) — registered UDIDs
+  #
+  #  WHY 2 channels:
+  #  - TestFlight: cho tester không cần đăng ký UDID, install qua App Store
+  #  - Firebase: cho tester cần install nhanh, không chờ TestFlight processing
+  #
+  #  WHY build số phụ lấy từ ASC:
+  #  TestFlight yêu cầu build number tăng đơn điệu — không thể dùng github.run_number
+  #  vì mỗi lần CI chạy mới không biết số trước đó là bao nhiêu.
+  # ─────────────────────────────────────────────────────────────
+  desc "Build QA → TestFlight (app-store) + Firebase App Distribution (ad-hoc)"
+  lane :distribute_qa do
+    api_key      = asc_api_key
+    qa_app_id    = ENV.fetch("QA_APP_IDENTIFIER",   "com.tuanvu.demoapp.qa")
+    version_name = ENV.fetch("APP_VERSION",          "1.0.0")
+
+    # ── Step 1: Resolve build number ───────────────────────────
+    latest_build = latest_testflight_build_number(
+      api_key:              api_key,
+      app_identifier:       qa_app_id,
+      initial_build_number: 0,
+    )
+    new_build_number = latest_build + 1
+    increment_build_number(
+      build_number: new_build_number,
+      xcodeproj:    "ios/demo_app.xcodeproj",
+    )
+
+    # ── Step 2: Badge QA icon ───────────────────────────────────
+    # WHY add_badge: tester phân biệt QA build vs Prod ngay trên home screen.
+    # CI runner là ephemeral — icon thay đổi chỉ tồn tại trong run đó, không commit.
+    # shield_scale 0.75 → badge nhỏ gọn, không che nội dung icon.
+    add_badge(
+      shield:           "QA-#{version_name}-orange",
+      shield_scale:     "0.75",
+      shield_no_resize: true,
+      glob:             "/ios/demo_app/Images.xcassets/AppIcon.appiconset/*.png",
+    )
+
+    # ── Step 3: TestFlight (app-store IPA) ─────────────────────
+    match(
+      type:                    "appstore",
+      readonly:                true,
+      api_key:                 api_key,
+      app_identifier:          qa_app_id,
+      git_url:                 ENV["MATCH_GIT_URL"],
+      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
+    )
+
+    gym(
+      scheme:           "demo_app-QA",
+      workspace:        "ios/demo_app.xcworkspace",
+      configuration:    "Release-QA",
+      export_method:    "app-store",
+      output_directory: "./build/ios",
+      output_name:      "demo_app_qa.ipa",
+      include_bitcode:  false,
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual",
+        "PROVISIONING_PROFILE_SPECIFIER='match AppStore #{qa_app_id}'",
+        "CODE_SIGN_IDENTITY='iPhone Distribution'",
+        "ENVFILE=.env.qa",
+      ].join(" "),
+    )
+
+    pilot(
+      api_key:                           api_key,
+      ipa:                               "./build/ios/demo_app_qa.ipa",
+      app_identifier:                    qa_app_id,
+      skip_waiting_for_build_processing: true,
+      distribute_external:               false,
+      changelog:                         release_notes,
+    )
+    UI.success "✅ QA #{version_name} (#{new_build_number}) → TestFlight!"
+
+    # ── Step 4: Firebase (ad-hoc IPA) ──────────────────────────
+    # WHY rebuild với adhoc thay vì reuse app-store IPA:
+    # App-store signed IPA không install được trực tiếp — cần App Store.
+    # Ad-hoc signed IPA install trực tiếp trên device đã đăng ký UDID.
+    match(
+      type:                    "adhoc",
+      readonly:                true,
+      api_key:                 api_key,
+      app_identifier:          qa_app_id,
+      git_url:                 ENV["MATCH_GIT_URL"],
+      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV['MATCH_GIT_TOKEN']}"),
+    )
+
+    gym(
+      scheme:           "demo_app-QA",
+      workspace:        "ios/demo_app.xcworkspace",
+      configuration:    "Release-QA",
+      export_method:    "ad-hoc",
+      output_directory: "./build/ios",
+      output_name:      "demo_app_qa_adhoc.ipa",
+      include_bitcode:  false,
+      xcargs: [
+        "CODE_SIGN_STYLE=Manual",
+        "PROVISIONING_PROFILE_SPECIFIER='match AdHoc #{qa_app_id}'",
+        "CODE_SIGN_IDENTITY='iPhone Distribution'",
+        "ENVFILE=.env.qa",
+      ].join(" "),
+    )
+
+    firebase_app_distribution(
+      app:                ENV.fetch("FIREBASE_IOS_QA_APP_ID", ""),
+      groups:             "qa-testers",
+      firebase_cli_token: ENV["FIREBASE_TOKEN"],
+      ipa_path:           "./build/ios/demo_app_qa_adhoc.ipa",
+      release_notes:      release_notes,
+    )
+    UI.success "✅ QA #{version_name} (#{new_build_number}) → Firebase App Distribution!"
+  end
+
+  # ─────────────────────────────────────────────────────────────
   #  refresh_profile
   #  Run after adding a new device to Apple Developer Portal.
   #  WHY NOT revoking the cert: force_for_new_devices: true only regenerates

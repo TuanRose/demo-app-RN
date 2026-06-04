@@ -1,0 +1,5 @@
+// Release-QA: inherits base QA settings + release-specific overrides
+#include "QA.xcconfig"
+
+// WHY SWIFT_OPTIMIZATION_LEVEL: release build cần optimize để app chạy nhanh hơn
+SWIFT_OPTIMIZATION_LEVEL = -O

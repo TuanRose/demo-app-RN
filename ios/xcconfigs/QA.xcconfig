@@ -1,0 +1,15 @@
+// Base QA settings shared by both Debug-QA and Release-QA configurations.
+// WHY xcconfig thay vì hardcode trong build settings:
+// - Dễ diff/review trên git — text file thay vì binary pbxproj
+// - Có thể override từng key tại configuration level (Debug-QA.xcconfig / Release-QA.xcconfig)
+
+// Bundle ID riêng → cài song song với Prod trên device + TestFlight/Firebase track riêng
+PRODUCT_BUNDLE_IDENTIFIER = com.tuanvu.demoapp.qa
+
+// Display name hiển thị trên home screen
+// Info.plist sẽ dùng $(DISPLAY_NAME) — xem T4
+DISPLAY_NAME = DemoApp QA
+
+// react-native-config: pre-action build phase sẽ set ENVFILE=.env.qa
+// Khai báo ở đây để scheme pre-action có thể reference biến này
+ENVFILE = .env.qa
