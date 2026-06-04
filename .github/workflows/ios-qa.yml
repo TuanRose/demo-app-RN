@@ -96,6 +96,13 @@ jobs:
       - name: Install CocoaPods
         run: bundle exec pod install --project-directory=ios
 
+      # ─── ImageMagick ───────────────────────────────────────────
+      # WHY: fastlane-plugin-badge requires ImageMagick to stamp the QA shield
+      # onto the app icon. macOS GitHub-hosted runners do not pre-install it.
+      # librsvg improves SVG → PNG rendering quality for the shield overlay.
+      - name: Install ImageMagick
+        run: brew install imagemagick librsvg
+
       # ─── Write .env.qa ─────────────────────────────────────────
       # WHY: .env.qa is gitignored (contains API endpoints, feature flags).
       # gym passes ENVFILE=.env.qa to react-native-config — file must exist
