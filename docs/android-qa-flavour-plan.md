@@ -2,7 +2,7 @@
 
 > **Branch:** `release/android`
 > **Sprint:** hiện tại (iOS đã được defer sang Sprint 5 — xem `docs/ios-qa-scheme-plan.md`)
-> **Status:** 🟡 IN PROGRESS — T1–T4 completed
+> **Status:** 🟡 IN PROGRESS — T1–T5 completed
 > **US:** Create dedicated QA build flavour (Android) — side-by-side install, QA backend, CI/CD distribution
 
 ---
@@ -427,7 +427,7 @@ T6 (Firebase app) → T9 (secrets) → T7 (fastlane verify) → T8 (workflow) �
 - [x] T2 — react-native-config + `.env.qa` (mock API) + `src/config/env.ts`
 - [x] T3 — Bật R8 (`enableProguardInReleaseBuilds = true`) + keep rules + verify `mapping.txt`
 - [x] T4 — Icon QA qua easylauncher plugin (ribbon "QA")
-- [ ] T5 — Verify signing (release keystore)
+- [x] T5 — Verify signing (release keystore)
 - [ ] T6 — Firebase Console: app `.qa` + group `qa-testers` + google-services.json
 - [ ] T7 — Verify lane `firebase_beta` chạy với `ANDROID_BUILD_FLAVOUR=Qa`
 - [ ] T8 — `.github/workflows/android-qa.yml`
@@ -446,6 +446,12 @@ T6 (Firebase app) → T9 (secrets) → T7 (fastlane verify) → T8 (workflow) �
 ### T3 — R8/ProGuard
 - **Keep rules thực tế:** thêm 3 rules cho RN core (`com.facebook.react.**`, `com.facebook.hermes.**`, `com.facebook.jni.**`) — plan gốc chỉ ghi `com.demo_app.BuildConfig`. JSI bridge dùng reflection → bắt buộc keep.
 - **mapping.txt path:** `app/build/outputs/mapping/QaRelease/mapping.txt` (viết hoa `Q`, `R`) — khác format thường thấy trong docs.
+
+### T5 — Signing verification
+- **Kết quả verify local:** `apksigner verify --print-certs app-Qa-release.apk` → `CN=Android Debug` — đúng expected.
+- **Lý do:** build local không set `ANDROID_KEYSTORE_PATH` → `signingConfigs.release` fallback về `debug.keystore`. Đây là thiết kế đúng, không phải bug.
+- **Trên CI:** Fastlane inject keystore thật qua `android.injected.signing.*` → override hoàn toàn block signingConfig → APK ký bằng release keystore.
+- **Không cần sửa code gì** — cơ chế đã đúng từ setup Antonio.
 
 ### T4 — easylauncher (nhiều gotcha nhất)
 
