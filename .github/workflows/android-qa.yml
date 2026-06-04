@@ -96,6 +96,17 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      # ─── Env files ─────────────────────────────────────────
+      # WHY tạo ở đây thay vì commit: .env* bị gitignore (discipline không commit secrets).
+      # QA build dùng .env.qa; .env là fallback cho Prod/Dev flavor khi dotenv.gradle scan.
+      # Giá trị ở đây là mock public API → không phải secret thật → hardcode trong workflow OK.
+      - name: Create env files
+        run: |
+          echo "API_BASE_URL=https://dummyjson.com" > .env
+          echo "APP_ENV=prod" >> .env
+          echo "API_BASE_URL=https://fakestoreapi.com" > .env.qa
+          echo "APP_ENV=qa" >> .env.qa
+
       # ─── Keystore Setup ────────────────────────────────────
       # WHY dùng chung keystore với Antonio: QA không lên Play Store
       # → không cần keystore riêng → giảm secrets phải quản lý.
