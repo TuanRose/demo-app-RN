@@ -2,7 +2,7 @@
 
 > **Branch:** `release/android`
 > **Sprint:** hiện tại (iOS đã được defer sang Sprint 5 — xem `docs/ios-qa-scheme-plan.md`)
-> **Status:** 🟡 IN PROGRESS — T1–T6, T8 completed; T7 pending CI verify; T9–T10 pending
+> **Status:** ✅ COMPLETED — T1–T10 done; T7 proven via CI (pipeline xanh, APK/AAB artifacts, Firebase nhận build)
 > **US:** Create dedicated QA build flavour (Android) — side-by-side install, QA backend, CI/CD distribution
 
 ---
@@ -431,8 +431,8 @@ T6 (Firebase app) → T9 (secrets) → T7 (fastlane verify) → T8 (workflow) �
 - [x] T6 — Firebase Console: app `.qa` + group `qa-testers` + google-services.json
 - [ ] T7 — Verify lane `firebase_beta` chạy với `ANDROID_BUILD_FLAVOUR=Qa` ← proven khi CI T8 xanh
 - [x] T8 — `.github/workflows/android-qa.yml`
-- [ ] T9 — GitHub Secrets `ANDROID_QA_*`
-- [ ] T10 — Docs build & run QA locally
+- [x] T9 — GitHub Secrets `ANDROID_QA_*` (proven: CI xanh, artifacts xuất hiện)
+- [x] T10 — Docs build & run QA locally
 - [ ] Verify pipeline xanh + build xuất hiện trên Firebase + tester nhận email
 
 ---

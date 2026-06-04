@@ -247,6 +247,57 @@ bg.convert("RGB").save("ic_launcher.png")
 
 ---
 
+### 9. QA Flavor — build & run locally
+
+**Run QA debug trên emulator/device:**
+```bash
+npx react-native run-android --mode qaDebug
+# applicationId: corleone.dev.demo_app.qa — cài song song với Prod/Dev/Antonio
+```
+
+**Build QA release APK (local verify):**
+```bash
+cd android && ./gradlew assembleQaRelease
+# Output: android/app/build/outputs/apk/Qa/release/app-Qa-release.apk
+```
+
+**Build QA release AAB:**
+```bash
+cd android && ./gradlew bundleQaRelease
+# Output: android/app/build/outputs/bundle/QaRelease/app-Qa-release.aab
+```
+
+**Verify env injection đúng:**
+
+Mở app QA → `Config.API_BASE_URL` phải là `https://fakestoreapi.com` (khác Prod `https://dummyjson.com`).
+Kiểm tra bằng cách log trong code hoặc dùng Flipper Network Inspector.
+
+**Phân biệt QA trên device:**
+- App name: **DemoApp QA**
+- Icon: có ribbon đỏ chữ "YAA QA" (easylauncher)
+- applicationId: `corleone.dev.demo_app.qa`
+
+**CI/CD (Firebase App Distribution):**
+
+Push lên branch `release/android` → GitHub Actions `android-qa.yml` tự trigger:
+```
+assembleQaRelease → Firebase App Distribution (group: qa-testers)
+bundleQaRelease   → GitHub Actions artifact (14 ngày)
+```
+
+Secrets cần có trên GitHub repo:
+| Secret | Ghi chú |
+|---|---|
+| `ANDROID_QA_FIREBASE_APP_ID` | App ID `corleone.dev.demo_app.qa` từ Firebase Console |
+| `ANDROID_QA_KEYSTORE_BASE64` | Có thể reuse keystore Antonio/Prod |
+| `ANDROID_QA_KEYSTORE_ALIAS` | Same Antonio nếu dùng chung keystore |
+| `ANDROID_QA_KEYSTORE_PASSWORD` | Same Antonio nếu dùng chung keystore |
+| `ANDROID_QA_KEY_PASSWORD` | Same Antonio nếu dùng chung keystore |
+| `FIREBASE_TOKEN` | Dùng chung với Antonio — không cần tạo lại |
+| `APP_VERSION` | Dùng chung |
+
+---
+
 ## Checklist đã hoàn thành (local)
 
 - [x] Tạo `release.keystore` + thêm vào `.gitignore`
@@ -257,6 +308,8 @@ bg.convert("RGB").save("ic_launcher.png")
 - [x] Fix `npm run android` — dùng `--mode prodDebug`
 - [x] Tạo `App.android.tsx` — tránh crash do iOS-only native modules
 - [x] Cập nhật Android app icon từ nguồn gốc
+- [x] Thêm `Qa` productFlavor — side-by-side install, `.env.qa`, easylauncher ribbon, R8
+- [x] CI `android-qa.yml` → Firebase App Distribution tự động khi push `release/android`
 
 ## Checklist còn lại (cần Play Console account)
 
