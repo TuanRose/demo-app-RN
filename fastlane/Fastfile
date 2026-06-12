@@ -15,7 +15,7 @@
 #
 #  WHY API Key instead of App-Specific Password:
 #  - App-Specific Password requires interactive 2FA → CI hangs waiting for OTP
-#  - API Key is a service account, not blocked by 2FA
+#  - API Key is a service account, not blocked by 2FA 
 #  - Can be revoked independently without affecting the main Apple ID
 # ────────────────────────────────────────────────────────────────
 def asc_api_key
